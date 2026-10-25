@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ master, feature/custom-provider ]
+    branches: [ main, master, feature/custom-provider ]
   workflow_dispatch:
 
 permissions:

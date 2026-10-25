@@ -26,11 +26,15 @@ jobs:
     - name: Build Prerelease Debug APK
       run: ./gradlew assemblePrereleaseDebug
 
+    - name: Rename APK
+      run: |
+        cp app/build/outputs/apk/prerelease/debug/*.apk app/build/outputs/apk/prerelease/debug/CloudStream.apk
+
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: cloudstream-apk
-        path: app/build/outputs/apk/prerelease/debug/*.apk
+        path: app/build/outputs/apk/prerelease/debug/CloudStream.apk
 
     - name: Create GitHub Release & Upload APK
       uses: marvinpinto/action-automatic-releases@latest
@@ -40,4 +44,4 @@ jobs:
         prerelease: true
         title: "CloudStream Dual Subtitle Build"
         files: |
-          app/build/outputs/apk/prerelease/debug/*.apk
+          app/build/outputs/apk/prerelease/debug/CloudStream.apk

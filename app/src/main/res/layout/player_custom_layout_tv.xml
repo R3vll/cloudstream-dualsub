@@ -1148,6 +1148,13 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
+        <androidx.media3.ui.SubtitleView
+            android:id="@+id/exo_subtitles"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:layout_marginBottom="32dp" />
+
     </FrameLayout>
 
     <com.google.android.material.button.MaterialButton

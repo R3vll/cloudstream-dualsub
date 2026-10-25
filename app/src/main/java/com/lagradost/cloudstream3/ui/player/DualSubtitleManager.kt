@@ -1,6 +1,8 @@
 package com.lagradost.cloudstream3.ui.player
 
+import android.text.SpannableString
 import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.style.RelativeSizeSpan
 import androidx.media3.common.text.Cue
 import com.lagradost.cloudstream3.ui.player.SubtitleData

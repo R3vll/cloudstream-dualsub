@@ -1809,20 +1809,24 @@ class GeneratorPlayer : FullScreenPlayer() {
     /** Converts the current link to a stable identifier, so the source can be restored later.
      * Streaming URLs are intentionally not persisted as they may expire. */
     private fun VideoLink.toSelectedSourceData(): SelectedSourceData? {
-        return when {
-            first != null -> SelectedSourceData(
-                source = first.source,
-                name = first.name,
-                quality = first.quality,
+        val link = first
+        if (link != null) {
+            return SelectedSourceData(
+                source = link.source,
+                name = link.name,
+                quality = link.quality,
             )
-
-            second != null -> SelectedSourceData(
-                name = second.name,
-                uriId = second.id,
-            )
-
-            else -> null
         }
+
+        val uri = second
+        if (uri != null) {
+            return SelectedSourceData(
+                name = uri.name,
+                uriId = uri.id,
+            )
+        }
+
+        return null
     }
 
     /** Returns true if this link matches the saved source identifier. */

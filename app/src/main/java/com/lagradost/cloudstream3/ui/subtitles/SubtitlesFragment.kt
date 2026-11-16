@@ -43,6 +43,7 @@ import com.lagradost.cloudstream3.ui.player.CustomDecoder
 import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.setSubtitleAlignment
 import com.lagradost.cloudstream3.ui.player.OutlineSpan
 import com.lagradost.cloudstream3.ui.player.RoundedBackgroundColorSpan
+import com.lagradost.cloudstream3.ui.player.SecondarySubtitlePosition
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLandscape
@@ -143,6 +144,8 @@ data class SaveCaptionStyle(
     @JsonProperty("backgroundRadius") @SerialName("backgroundRadius") val backgroundRadius: Float? = null,
     /** The SSA_ALIGNMENT */
     @JsonProperty("alignment") @SerialName("alignment") val alignment: Int? = null,
+    /** Where the secondary subtitle is rendered relative to the primary one when dual subtitles are enabled */
+    @JsonProperty("secondarySubtitlePosition") @SerialName("secondarySubtitlePosition") val secondarySubtitlePosition: SecondarySubtitlePosition = SecondarySubtitlePosition.BOTTOM,
 )
 
 const val DEF_SUBS_ELEVATION = 20

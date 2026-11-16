@@ -37,6 +37,7 @@ import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.player.CustomDecoder
+import com.lagradost.cloudstream3.ui.player.SecondarySubtitlePosition
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyleEvent
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.defaultSubtitleStyle
@@ -78,6 +79,7 @@ object SubtitlesScreen : SearchableSettings {
         R.string.subs_subtitle_elevation to { state -> state.elevation },
         R.string.subtitles_remove_captions to { state -> state.removeCaptions },
         R.string.subtitles_remove_bloat to { state -> state.removeBloat },
+        R.string.subs_secondary_position to { state -> state.secondarySubtitlePosition },
     )
 
     @Composable
@@ -398,6 +400,23 @@ object SubtitlesScreen : SearchableSettings {
                         icon = painterResource(R.drawable.text_select_move_up_24px),
                         valueRange = 0..400,
                         steps = 39
+                    ),
+                )
+            ),
+
+            Preference.PreferenceGroup(
+                title = stringResource(R.string.subs_dual_subtitles),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.ListPreference(
+                        preference = store.field(SaveCaptionStyle::secondarySubtitlePosition) { newValue ->
+                            copy(secondarySubtitlePosition = newValue)
+                        },
+                        icon = painterResource(R.drawable.subtitle_position_24px),
+                        title = stringResource(R.string.subs_secondary_position),
+                        entries = persistentMapOf(
+                            SecondarySubtitlePosition.TOP to stringResource(R.string.subs_secondary_top),
+                            SecondarySubtitlePosition.BOTTOM to stringResource(R.string.subs_secondary_bottom),
+                        )
                     ),
                 )
             ),

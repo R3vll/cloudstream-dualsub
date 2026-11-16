@@ -107,6 +107,7 @@ import com.lagradost.cloudstream3.ui.settings.Globals.PHONE
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.ui.subtitles.SaveCaptionStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyle
+import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.getCurrentSavedStyle
 import com.lagradost.cloudstream3.utils.AppContextUtils.isUsingMobileData
 import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.CLEARKEY_DRM_UUID
@@ -356,6 +357,10 @@ class CS3IPlayer : IPlayer {
     fun setDualPreferredSubtitles(primary: SubtitleData?, secondary: SubtitleData?): Boolean {
         currentSubtitles = primary
         secondarySubtitleData = secondary
+
+        // Keep the runtime dual subtitle layout in sync with the persisted preference
+        DualSubtitleManager.secondarySubtitlePosition =
+            getCurrentSavedStyle().secondarySubtitlePosition
 
         if (secondary == null) {
             DualSubtitleManager.clearSecondary()

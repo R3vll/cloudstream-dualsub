@@ -795,6 +795,10 @@
     <string name="download_episode_range">Do you want to download episode %s?</string>
     <string name="cancel_queue_message">Do you want to cancel all queued downloads?</string>
     <string name="subs_subtitle_alignment">Subtitle Alignment</string>
+    <string name="subs_dual_subtitles">Dual Subtitles</string>
+    <string name="subs_secondary_position">Secondary Subtitle Position</string>
+    <string name="subs_secondary_top">Top (above primary)</string>
+    <string name="subs_secondary_bottom">Bottom (below primary)</string>
     <string name="bottom_left">Bottom left</string>
     <string name="bottom_center">Bottom center</string>
     <string name="bottom_right">Bottom right</string>

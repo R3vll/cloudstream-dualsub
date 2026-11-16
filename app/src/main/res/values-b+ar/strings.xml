@@ -705,6 +705,10 @@
     <string name="name">اسم</string>
     <string name="resolution_and_name">الدقة و الاسم</string>
     <string name="subs_subtitle_alignment">محاذاة الترجمة</string>
+    <string name="subs_dual_subtitles">الترجمات المزدوجة</string>
+    <string name="subs_secondary_position">موضع الترجمة الثانوية</string>
+    <string name="subs_secondary_top">أعلى (فوق الأساسية)</string>
+    <string name="subs_secondary_bottom">أسفل (تحت الأساسية)</string>
     <string name="bottom_left">أسفل اليسار</string>
     <string name="bottom_center">اسفل وسط</string>
     <string name="bottom_right">أسفل اليمين</string>

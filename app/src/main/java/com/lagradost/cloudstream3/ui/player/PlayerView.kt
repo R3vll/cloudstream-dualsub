@@ -614,6 +614,8 @@ class PlayerView @JvmOverloads constructor(
 
     private fun onSubStyleChanged(style: SaveCaptionStyle) {
         player.updateSubtitleStyle(style)
+        // Dual subtitle layout follows the persisted preference
+        DualSubtitleManager.secondarySubtitlePosition = style.secondarySubtitlePosition
         // Forcefully update the subtitle encoding in case the edge size is changed.
         player.seekTime(-1)
     }

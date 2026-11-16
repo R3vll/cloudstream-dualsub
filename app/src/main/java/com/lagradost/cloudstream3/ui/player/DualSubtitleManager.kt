@@ -5,7 +5,25 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.RelativeSizeSpan
 import androidx.media3.common.text.Cue
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.ui.player.SubtitleData
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Defines the position of the secondary subtitle relative to the primary subtitle.
+ * TOP: Secondary subtitle appears above the primary subtitle.
+ * BOTTOM: Primary subtitle appears above the secondary subtitle (default, existing behavior).
+ */
+@Serializable
+enum class SecondarySubtitlePosition {
+    @JsonProperty("TOP")
+    @SerialName("TOP")
+    TOP,
+    @JsonProperty("BOTTOM")
+    @SerialName("BOTTOM")
+    BOTTOM
+}
 
 data class DualSubtitleCue(
     val startMs: Long,
@@ -19,6 +37,29 @@ object DualSubtitleManager {
     var secondaryDelayMs: Long = 0L
     var secondaryTextSizeRatio: Float = 0.85f
     var subtitleVerticalSpacingRatio: Float = 0.6f
+    
+    /**
+     * Position preference for secondary subtitle.
+     * Default is BOTTOM to preserve existing behavior (Primary above Secondary).
+     */
+    var secondarySubtitlePosition: SecondarySubtitlePosition = SecondarySubtitlePosition.BOTTOM
+
+    private fun containsRtl(text: CharSequence): Boolean {
+        if (text.isEmpty()) return false
+        for (i in 0 until text.length) {
+            val dir = Character.getDirectionality(text[i].code)
+            if (dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT ||
+                dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun wrapRtl(text: String): String {
+        if (text.isEmpty()) return text
+        return if (containsRtl(text)) "‫$text‬" else text
+    }
 
     fun clearSecondary() {
         secondarySub = null
@@ -106,6 +147,9 @@ object DualSubtitleManager {
         val primaryText = primaryCues.firstOrNull()?.text?.toString()?.trim() ?: ""
         val cleanSec = secondaryText?.toString()?.trim() ?: ""
 
+        val wrappedPrimary = wrapRtl(primaryText)
+        val wrappedSecondary = wrapRtl(cleanSec)
+
         val hasPrimary = primaryCues.isNotEmpty() && primaryText.isNotEmpty()
         val hasSecondary = cleanSec.isNotEmpty()
 
@@ -118,23 +162,50 @@ object DualSubtitleManager {
 
         val builder = SpannableStringBuilder()
 
-        if (hasSecondary) {
-            builder.append(cleanSec)
-            if (hasPrimary) {
-                val spacingSpan = SpannableString("\n").apply {
-                    setSpan(
-                        RelativeSizeSpan(subtitleVerticalSpacingRatio),
-                        0,
-                        1,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
+        // Position based on preference: TOP = Secondary first, BOTTOM = Primary first
+        when (secondarySubtitlePosition) {
+            SecondarySubtitlePosition.TOP -> {
+                // Secondary above Primary
+                if (hasSecondary) {
+                    builder.append(wrappedSecondary)
+                    if (hasPrimary) {
+                        val spacingSpan = SpannableString("\n").apply {
+                            setSpan(
+                                RelativeSizeSpan(subtitleVerticalSpacingRatio),
+                                0,
+                                1,
+                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        builder.append(spacingSpan)
+                    }
                 }
-                builder.append(spacingSpan)
-            }
-        }
 
-        if (hasPrimary) {
-            builder.append(primaryText)
+                if (hasPrimary) {
+                    builder.append(wrappedPrimary)
+                }
+            }
+            SecondarySubtitlePosition.BOTTOM -> {
+                // Primary above Secondary (existing behavior)
+                if (hasPrimary) {
+                    builder.append(wrappedPrimary)
+                    if (hasSecondary) {
+                        val spacingSpan = SpannableString("\n").apply {
+                            setSpan(
+                                RelativeSizeSpan(subtitleVerticalSpacingRatio),
+                                0,
+                                1,
+                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        builder.append(spacingSpan)
+                    }
+                }
+
+                if (hasSecondary) {
+                    builder.append(wrappedSecondary)
+                }
+            }
         }
 
         val baseCue = if (hasPrimary) primaryCues.first() else Cue.Builder().setText("").build()

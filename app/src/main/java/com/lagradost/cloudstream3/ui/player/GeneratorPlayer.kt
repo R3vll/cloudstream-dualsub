@@ -113,7 +113,10 @@ import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.DataStoreHelper.SelectedSourceData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getEpisodeSelectedSource
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setEpisodeSelectedSource
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
@@ -1487,6 +1490,8 @@ class GeneratorPlayer : FullScreenPlayer() {
 
                     if (init) {
                         filteredLinks.getOrNull(sourceIndex)?.let {
+                            // The user manually picked this source, remember it for this episode
+                            saveSelectedSource(it.link)
                             loadLink(it.link, true)
                         }
                     }
@@ -1657,6 +1662,9 @@ class GeneratorPlayer : FullScreenPlayer() {
     override fun playerError(exception: Throwable) {
         currentSelectedLink?.let { link ->
             viewModel.modifyState { this.addError(link) }
+            // The source we (or the user) selected cannot be played: drop the saved
+            // preference so the episode safely falls back next time it is opened
+            clearSavedSource(link)
         }
 
         val currentUrl =
@@ -1708,7 +1716,13 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         val links = viewModel.state.sortLinks(currentQualityProfile)
 
-        val firstAvailableLink = links.firstOrNull { it.shouldUseLink }?.link
+        // Restore the last manually selected source of this episode, if it is still available
+        val savedLink = findSavedLink(
+            links,
+            getEpisodeSelectedSource(viewModel.state.generatorState?.id)
+        )
+        val firstAvailableLink =
+            savedLink?.link ?: links.firstOrNull { it.shouldUseLink }?.link
         if (firstAvailableLink == null) {
             noLinksFound()
             return
@@ -1790,6 +1804,101 @@ class GeneratorPlayer : FullScreenPlayer() {
         val nextPotentialLink =
             links.withIndex().firstOrNull { it.index > currentIndex && it.value.shouldUseLink }
         return nextPotentialLink?.value
+    }
+
+    /** Converts the current link to a stable identifier, so the source can be restored later.
+     * Streaming URLs are intentionally not persisted as they may expire. */
+    private fun VideoLink.toSelectedSourceData(): SelectedSourceData? {
+        return when {
+            first != null -> SelectedSourceData(
+                source = first.source,
+                name = first.name,
+                quality = first.quality,
+            )
+
+            second != null -> SelectedSourceData(
+                name = second.name,
+                uriId = second.id,
+            )
+
+            else -> null
+        }
+    }
+
+    /** Returns true if this link matches the saved source identifier. */
+    private fun VideoLink.matchesSavedSource(saved: SelectedSourceData): Boolean {
+        val link = first
+        if (link != null && saved.uriId == null) {
+            return (saved.source != null &&
+                    link.source.equals(saved.source, ignoreCase = true) &&
+                    link.name.equals(saved.name, ignoreCase = true) &&
+                    (saved.quality == null || link.quality == saved.quality)) ||
+                    link.name.equals(saved.name, ignoreCase = true)
+        }
+
+        val uri = second
+        if (uri != null && saved.uriId != null) {
+            return uri.id == saved.uriId || uri.name.equals(saved.name, ignoreCase = true)
+        }
+
+        return false
+    }
+
+    /** Finds the saved source among the given links, most exact match first, or null when gone. */
+    private fun findSavedLink(links: List<DisplayLink>, saved: SelectedSourceData?): DisplayLink? {
+        if (saved == null) return null
+
+        // Exact provider + server + quality
+        links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.first?.let { link ->
+                saved.source != null &&
+                        link.source.equals(saved.source, ignoreCase = true) &&
+                        link.name.equals(saved.name, ignoreCase = true) &&
+                        (saved.quality == null || link.quality == saved.quality)
+            } == true
+        }?.let { return it }
+
+        // Same server from the same provider, different quality
+        links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.first?.let { link ->
+                saved.source != null &&
+                        link.source.equals(saved.source, ignoreCase = true) &&
+                        link.name.equals(saved.name, ignoreCase = true)
+            } == true
+        }?.let { return it }
+
+        // Same server name from another provider
+        links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.first?.name
+                .equals(saved.name, ignoreCase = true)
+        }?.let { return it }
+
+        // Local file
+        return links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.second?.let { uri ->
+                (saved.uriId != null && uri.id == saved.uriId) ||
+                        uri.name.equals(saved.name, ignoreCase = true)
+            } == true
+        }
+    }
+
+    /** Saves this link as the last manually selected source of the current episode. */
+    private fun saveSelectedSource(link: VideoLink) {
+        val id = viewModel.state.generatorState?.id ?: return
+        link.toSelectedSourceData()?.let { data ->
+            setEpisodeSelectedSource(id, data)
+            Log.i(TAG, "Saved selected source for episode $id: $data")
+        }
+    }
+
+    /** Removes the saved source of the current episode, used when it can no longer be loaded. */
+    private fun clearSavedSource(link: VideoLink) {
+        val id = viewModel.state.generatorState?.id ?: return
+        val saved = getEpisodeSelectedSource(id) ?: return
+        if (link.matchesSavedSource(saved)) {
+            setEpisodeSelectedSource(id, null)
+            Log.i(TAG, "Cleared saved source for episode $id as it failed to load")
+        }
     }
 
     override fun hasNextMirror(): Boolean {

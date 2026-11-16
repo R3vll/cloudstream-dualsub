@@ -37,6 +37,7 @@ import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.player.CustomDecoder
+import com.lagradost.cloudstream3.ui.player.SecondaryPositionMode
 import com.lagradost.cloudstream3.ui.player.SecondarySubtitlePosition
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyleEvent
@@ -80,6 +81,14 @@ object SubtitlesScreen : SearchableSettings {
         R.string.subtitles_remove_captions to { state -> state.removeCaptions },
         R.string.subtitles_remove_bloat to { state -> state.removeBloat },
         R.string.subs_secondary_position to { state -> state.secondarySubtitlePosition },
+        R.string.subs_secondary_position_mode to { state -> state.secondaryPositionMode },
+        R.string.subs_secondary_alignment to { state -> state.secondaryAlignment },
+        R.string.subs_secondary_offset to { state -> state.secondaryVerticalOffset },
+        R.string.subs_secondary_text_color to { state -> state.secondaryForegroundColor },
+        R.string.subs_secondary_bg_color to { state -> state.secondaryBackgroundColor },
+        R.string.subs_secondary_bg_radius to { state -> state.secondaryBackgroundRadius },
+        R.string.subs_secondary_opacity to { state -> state.secondaryOpacity },
+        R.string.subs_secondary_size_ratio to { state -> state.secondaryTextSizeRatio },
     )
 
     @Composable
@@ -207,6 +216,8 @@ object SubtitlesScreen : SearchableSettings {
                     logError(t)
                 }
             }
+
+        val state by store.state
 
         return persistentListOf(
             Preference.PreferenceItem.CustomPreference(
@@ -413,10 +424,99 @@ object SubtitlesScreen : SearchableSettings {
                         },
                         icon = painterResource(R.drawable.subtitle_position_24px),
                         title = stringResource(R.string.subs_secondary_position),
+                        enabled = state.secondaryPositionMode == SecondaryPositionMode.STACKED,
                         entries = persistentMapOf(
                             SecondarySubtitlePosition.TOP to stringResource(R.string.subs_secondary_top),
                             SecondarySubtitlePosition.BOTTOM to stringResource(R.string.subs_secondary_bottom),
                         )
+                    ),
+                    Preference.PreferenceItem.ListPreference(
+                        preference = store.field(SaveCaptionStyle::secondaryPositionMode) { newValue ->
+                            copy(secondaryPositionMode = newValue)
+                        },
+                        icon = painterResource(R.drawable.subtitle_position_24px),
+                        title = stringResource(R.string.subs_secondary_position_mode),
+                        entries = persistentMapOf(
+                            SecondaryPositionMode.STACKED to stringResource(R.string.subs_secondary_mode_stacked),
+                            SecondaryPositionMode.SEPARATE to stringResource(R.string.subs_secondary_mode_separate),
+                        )
+                    ),
+                )
+            ),
+
+            Preference.PreferenceGroup(
+                title = stringResource(R.string.subs_secondary_style),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.ColorPreference(
+                        preference = store.field(SaveCaptionStyle::secondaryForegroundColor) { newValue ->
+                            copy(secondaryForegroundColor = newValue)
+                        },
+                        title = stringResource(R.string.subs_secondary_text_color),
+                        icon = painterResource(R.drawable.format_color_text_24px),
+                    ),
+                    Preference.PreferenceItem.ColorPreference(
+                        preference = store.field(SaveCaptionStyle::secondaryBackgroundColor) { newValue ->
+                            copy(secondaryBackgroundColor = newValue)
+                        },
+                        title = stringResource(R.string.subs_secondary_bg_color),
+                        icon = painterResource(R.drawable.format_color_fill_24px),
+                    ),
+                    Preference.PreferenceItem.SliderPreference(
+                        preference = store.field(
+                            get = { secondaryBackgroundRadius.toInt() },
+                            set = { newValue -> copy(secondaryBackgroundRadius = newValue.toFloat()) }
+                        ),
+                        icon = painterResource(R.drawable.rounded_corner_24px),
+                        title = stringResource(R.string.subs_secondary_bg_radius),
+                        valueRange = 0..50
+                    ),
+                    Preference.PreferenceItem.SliderPreference(
+                        preference = store.field(
+                            get = { (secondaryOpacity * 100).toInt() },
+                            set = { newValue -> copy(secondaryOpacity = newValue / 100f) }
+                        ),
+                        icon = painterResource(R.drawable.text_fields_24px),
+                        title = stringResource(R.string.subs_secondary_opacity),
+                        valueRange = 0..100
+                    ),
+                    Preference.PreferenceItem.SliderPreference(
+                        preference = store.field(
+                            get = { (secondaryTextSizeRatio * 100).toInt() },
+                            set = { newValue -> copy(secondaryTextSizeRatio = newValue / 100f) }
+                        ),
+                        icon = painterResource(R.drawable.text_fields_24px),
+                        title = stringResource(R.string.subs_secondary_size_ratio),
+                        valueRange = 20..150
+                    ),
+                    Preference.PreferenceItem.ListPreference(
+                        icon = painterResource(R.drawable.format_align_center_24px),
+                        title = stringResource(R.string.subs_secondary_alignment),
+                        enabled = state.secondaryPositionMode == SecondaryPositionMode.SEPARATE,
+                        preference = store.field(SaveCaptionStyle::secondaryAlignment) { newValue ->
+                            copy(secondaryAlignment = newValue)
+                        },
+                        entries = persistentMapOf(
+                            null to stringResource(R.string.automatic),
+                            CustomDecoder.SSA_ALIGNMENT_BOTTOM_LEFT to stringResource(R.string.bottom_left),
+                            CustomDecoder.SSA_ALIGNMENT_BOTTOM_CENTER to stringResource(R.string.bottom_center),
+                            CustomDecoder.SSA_ALIGNMENT_BOTTOM_RIGHT to stringResource(R.string.bottom_right),
+                            CustomDecoder.SSA_ALIGNMENT_MIDDLE_LEFT to stringResource(R.string.middle_left),
+                            CustomDecoder.SSA_ALIGNMENT_MIDDLE_CENTER to stringResource(R.string.middle_center),
+                            CustomDecoder.SSA_ALIGNMENT_MIDDLE_RIGHT to stringResource(R.string.middle_right),
+                            CustomDecoder.SSA_ALIGNMENT_TOP_LEFT to stringResource(R.string.top_left),
+                            CustomDecoder.SSA_ALIGNMENT_TOP_CENTER to stringResource(R.string.top_center),
+                            CustomDecoder.SSA_ALIGNMENT_TOP_RIGHT to stringResource(R.string.top_right),
+                        )
+                    ),
+                    Preference.PreferenceItem.SliderPreference(
+                        preference = store.field(
+                            get = { secondaryVerticalOffset.toInt() },
+                            set = { newValue -> copy(secondaryVerticalOffset = newValue.toFloat()) }
+                        ),
+                        icon = painterResource(R.drawable.text_select_move_up_24px),
+                        title = stringResource(R.string.subs_secondary_offset),
+                        enabled = state.secondaryPositionMode == SecondaryPositionMode.SEPARATE,
+                        valueRange = -50..50
                     ),
                 )
             ),

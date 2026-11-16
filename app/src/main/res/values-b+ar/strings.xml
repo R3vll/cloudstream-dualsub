@@ -709,6 +709,17 @@
     <string name="subs_secondary_position">موضع الترجمة الثانوية</string>
     <string name="subs_secondary_top">أعلى (فوق الأساسية)</string>
     <string name="subs_secondary_bottom">أسفل (تحت الأساسية)</string>
+    <string name="subs_secondary_position_mode">وضع موضع الترجمة الثانوية</string>
+    <string name="subs_secondary_mode_stacked">متراصة مع الأساسية</string>
+    <string name="subs_secondary_mode_separate">منفصلة، في أي مكان بالشاشة</string>
+    <string name="subs_secondary_style">نمط الترجمة الثانوية</string>
+    <string name="subs_secondary_text_color">لون نص الترجمة الثانوية</string>
+    <string name="subs_secondary_bg_color">لون خلفية الترجمة الثانوية</string>
+    <string name="subs_secondary_bg_radius">استدارة خلفية الترجمة الثانوية</string>
+    <string name="subs_secondary_opacity">شفافية الترجمة الثانوية (%)</string>
+    <string name="subs_secondary_size_ratio">حجم نص الترجمة الثانوية (% من الأساسية)</string>
+    <string name="subs_secondary_alignment">محاذاة الترجمة الثانوية</string>
+    <string name="subs_secondary_offset">الإزاحة العمودية للترجمة الثانوية (%)</string>
     <string name="bottom_left">أسفل اليسار</string>
     <string name="bottom_center">اسفل وسط</string>
     <string name="bottom_right">أسفل اليمين</string>

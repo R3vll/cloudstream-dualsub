@@ -358,9 +358,8 @@ class CS3IPlayer : IPlayer {
         currentSubtitles = primary
         secondarySubtitleData = secondary
 
-        // Keep the runtime dual subtitle layout in sync with the persisted preference
-        DualSubtitleManager.secondarySubtitlePosition =
-            getCurrentSavedStyle().secondarySubtitlePosition
+        // Keep the runtime dual subtitle layout/style in sync with the persisted preferences
+        DualSubtitleManager.applyStyle(getCurrentSavedStyle())
 
         if (secondary == null) {
             DualSubtitleManager.clearSecondary()
@@ -1313,7 +1312,7 @@ class CS3IPlayer : IPlayer {
 
                         val currentPos = exoPlayer?.currentPosition ?: 0L
                         val secondaryText = DualSubtitleManager.getCurrentSecondaryText(currentPos)
-                        val finalCues = DualSubtitleManager.buildMergedCues(combinedCues, secondaryText)
+                        val finalCues = DualSubtitleManager.buildFinalCues(combinedCues, secondaryText)
 
                         subtitleHelper.subtitleView?.setCues(finalCues)
                     }

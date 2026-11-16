@@ -43,6 +43,7 @@ import com.lagradost.cloudstream3.ui.player.CustomDecoder
 import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.setSubtitleAlignment
 import com.lagradost.cloudstream3.ui.player.OutlineSpan
 import com.lagradost.cloudstream3.ui.player.RoundedBackgroundColorSpan
+import com.lagradost.cloudstream3.ui.player.SecondaryPositionMode
 import com.lagradost.cloudstream3.ui.player.SecondarySubtitlePosition
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
@@ -146,6 +147,22 @@ data class SaveCaptionStyle(
     @JsonProperty("alignment") @SerialName("alignment") val alignment: Int? = null,
     /** Where the secondary subtitle is rendered relative to the primary one when dual subtitles are enabled */
     @JsonProperty("secondarySubtitlePosition") @SerialName("secondarySubtitlePosition") val secondarySubtitlePosition: SecondarySubtitlePosition = SecondarySubtitlePosition.BOTTOM,
+    /** Whether the secondary subtitle is stacked with the primary or placed independently */
+    @JsonProperty("secondaryPositionMode") @SerialName("secondaryPositionMode") val secondaryPositionMode: SecondaryPositionMode = SecondaryPositionMode.STACKED,
+    /** SSA alignment for the secondary subtitle when its position mode is SEPARATE */
+    @JsonProperty("secondaryAlignment") @SerialName("secondaryAlignment") val secondaryAlignment: Int? = null,
+    /** Extra vertical offset in percent of the view height applied to the secondary subtitle */
+    @JsonProperty("secondaryVerticalOffset") @SerialName("secondaryVerticalOffset") val secondaryVerticalOffset: Float = 0f,
+    /** Text colour of the secondary subtitle */
+    @JsonProperty("secondaryForegroundColor") @SerialName("secondaryForegroundColor") val secondaryForegroundColor: Int = Color.WHITE,
+    /** Background colour drawn behind the secondary subtitle */
+    @JsonProperty("secondaryBackgroundColor") @SerialName("secondaryBackgroundColor") val secondaryBackgroundColor: Int = Color.TRANSPARENT,
+    /** Corner radius of the secondary background, in dp */
+    @JsonProperty("secondaryBackgroundRadius") @SerialName("secondaryBackgroundRadius") val secondaryBackgroundRadius: Float = 0f,
+    /** Opacity of the secondary subtitle, 0.0 - 1.0 */
+    @JsonProperty("secondaryOpacity") @SerialName("secondaryOpacity") val secondaryOpacity: Float = 1.0f,
+    /** Text size of the secondary subtitle relative to the primary one, 0.0 - 3.0 */
+    @JsonProperty("secondaryTextSizeRatio") @SerialName("secondaryTextSizeRatio") val secondaryTextSizeRatio: Float = 0.85f,
 )
 
 const val DEF_SUBS_ELEVATION = 20

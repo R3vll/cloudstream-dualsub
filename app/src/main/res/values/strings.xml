@@ -799,6 +799,17 @@
     <string name="subs_secondary_position">Secondary Subtitle Position</string>
     <string name="subs_secondary_top">Top (above primary)</string>
     <string name="subs_secondary_bottom">Bottom (below primary)</string>
+    <string name="subs_secondary_position_mode">Secondary Position Mode</string>
+    <string name="subs_secondary_mode_stacked">Stacked with primary</string>
+    <string name="subs_secondary_mode_separate">Separate, anywhere on screen</string>
+    <string name="subs_secondary_style">Secondary Subtitle Style</string>
+    <string name="subs_secondary_text_color">Secondary Text Color</string>
+    <string name="subs_secondary_bg_color">Secondary Background Color</string>
+    <string name="subs_secondary_bg_radius">Secondary Background Radius</string>
+    <string name="subs_secondary_opacity">Secondary Opacity (%)</string>
+    <string name="subs_secondary_size_ratio">Secondary Text Size (% of primary)</string>
+    <string name="subs_secondary_alignment">Secondary Alignment</string>
+    <string name="subs_secondary_offset">Secondary Vertical Offset (%)</string>
     <string name="bottom_left">Bottom left</string>
     <string name="bottom_center">Bottom center</string>
     <string name="bottom_right">Bottom right</string>

@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, master, feature/custom-provider, feature/secondary-subtitle-position ]
+    branches: [ main, master, feature/custom-provider, feature/secondary-subtitle-position, feature/sync-subs-target-toggle ]
   workflow_dispatch:
 
 permissions:

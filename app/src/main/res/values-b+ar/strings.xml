@@ -318,6 +318,10 @@
     <string name="subtitle_offset">مزامنة الترجمة</string>
     <string name="subtitle_offset_hint">1000 مللي ثانية</string>
     <string name="subtitle_offset_title">تأخير الترجمة</string>
+    <string name="subtitle_offset_title_primary">تأخير الترجمة</string>
+    <string name="subtitle_offset_title_secondary">تأخير الترجمة الثانوية</string>
+    <string name="subtitle_offset_target_primary">الترجمة الأساسية</string>
+    <string name="subtitle_offset_target_secondary">الترجمة الثانوية</string>
     <string name="subtitle_offset_extra_hint_later_format">إستعملْ هذا إذا تَظْهرُ الترجماتَ %d m في وقت مبكر جداً</string>
     <string name="subtitle_offset_extra_hint_before_format">استخدم هذا إذا تم عرض الترجمة %d مللي ثانية متأخرًا جدًا</string>
     <string name="subtitle_offset_extra_hint_none_format">لا تأخير في الترجمة</string>

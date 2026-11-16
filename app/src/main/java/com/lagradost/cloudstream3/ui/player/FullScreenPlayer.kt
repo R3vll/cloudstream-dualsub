@@ -532,6 +532,80 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
         binding.apply {
             var subtitleAdapter: SubtitleOffsetItemAdapter? = null
 
+            // Which subtitle track this dialog adjusts:
+            //  - Primary   -> the player subtitle delay (CustomDecoder.subtitleOffset)
+            //  - Secondary -> DualSubtitleManager.secondaryDelayMs
+            var syncSecondary = false
+
+            fun activeOffset(): Long =
+                if (syncSecondary) DualSubtitleManager.secondaryDelayMs else subtitleDelay
+
+            fun storeActiveOffset(value: Long) {
+                if (syncSecondary) {
+                    DualSubtitleManager.secondaryDelayMs = value
+                } else {
+                    subtitleDelay = value
+                }
+            }
+
+            fun updateSyncTargetViews() {
+                if (syncSecondary) {
+                    subtitleOffsetTitle.setText(R.string.subtitle_offset_title_secondary)
+                    subtitleOffsetTargetBtt.setText(R.string.subtitle_offset_target_secondary)
+                } else {
+                    subtitleOffsetTitle.setText(R.string.subtitle_offset_title_primary)
+                    subtitleOffsetTargetBtt.setText(R.string.subtitle_offset_target_primary)
+                }
+            }
+
+            fun updateOffsetHint(time: Long) {
+                val str = when {
+                    time > 0L -> {
+                        txt(R.string.subtitle_offset_extra_hint_before_format, time)
+                    }
+
+                    time < 0L -> {
+                        txt(R.string.subtitle_offset_extra_hint_later_format, -time)
+                    }
+
+                    else -> {
+                        txt(R.string.subtitle_offset_extra_hint_none_format)
+                    }
+                }
+                subtitleOffsetSubTitle.setText(str)
+            }
+
+            /** Cues of the currently selected subtitle track. */
+            fun activeSubtitleCues(): List<SubtitleCue> =
+                if (syncSecondary) {
+                    DualSubtitleManager.secondaryCues.map { cue ->
+                        SubtitleCue(
+                            cue.startMs,
+                            (cue.endMs - cue.startMs).coerceAtLeast(1L),
+                            listOf(cue.text.toString()),
+                        )
+                    }
+                } else {
+                    player.getSubtitleCues()
+                }
+
+            fun refreshSubtitleList(scrollToActive: Boolean) {
+                val subtitles = activeSubtitleCues().toMutableList()
+
+                subtitleOffsetRecyclerview.isVisible = subtitles.isNotEmpty()
+                noSubtitlesLoadedNotice.isVisible = subtitles.isEmpty()
+
+                subtitleAdapter?.submitList(subtitles)
+
+                if (scrollToActive) {
+                    val totalPosition = (player.getPosition() ?: 0) + currentOffset
+                    subtitleAdapter?.getLatestActiveItem(totalPosition)
+                        ?.let { subtitlePos ->
+                            subtitleOffsetRecyclerview.scrollToPosition(subtitlePos)
+                        }
+                }
+            }
+
             subtitleOffsetInput.doOnTextChanged { text, _, _, _ ->
                 text?.toString()?.toLongOrNull()?.let { time ->
                     currentOffset = time
@@ -546,29 +620,11 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
                             subtitleOffsetRecyclerview.scrollToPosition(subtitlePos)
                         }
 
-                    val str = when {
-                        time > 0L -> {
-                            txt(R.string.subtitle_offset_extra_hint_before_format, time)
-                        }
-
-                        time < 0L -> {
-                            txt(R.string.subtitle_offset_extra_hint_later_format, -time)
-                        }
-
-                        else -> {
-                            txt(R.string.subtitle_offset_extra_hint_none_format)
-                        }
-                    }
-                    subtitleOffsetSubTitle.setText(str)
+                    updateOffsetHint(time)
                 }
             }
-            subtitleOffsetInput.text =
-                Editable.Factory.getInstance()?.newEditable(currentOffset.toString())
 
-            val subtitles = player.getSubtitleCues().toMutableList()
-
-            subtitleOffsetRecyclerview.isVisible = subtitles.isNotEmpty()
-            noSubtitlesLoadedNotice.isVisible = subtitles.isEmpty()
+            updateSyncTargetViews()
 
             val initialSubtitlePosition = (player.getPosition() ?: 0) + currentOffset
             subtitleAdapter =
@@ -576,8 +632,6 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
                     val playerPosition = player.getPosition() ?: 0
                     subtitleOffsetInput.text = Editable.Factory.getInstance()
                         ?.newEditable((subtitleCue.startTimeMs - playerPosition).toString())
-                }.apply {
-                    submitList(subtitles)
                 }
 
             subtitleOffsetRecyclerview.adapter = subtitleAdapter
@@ -585,8 +639,10 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
             (subtitleOffsetRecyclerview.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations =
                 false
 
-            val firstSubtitle = subtitleAdapter.getLatestActiveItem(initialSubtitlePosition)
-            subtitleOffsetRecyclerview.scrollToPosition(firstSubtitle)
+            subtitleOffsetInput.text =
+                Editable.Factory.getInstance()?.newEditable(currentOffset.toString())
+
+            refreshSubtitleList(scrollToActive = true)
 
             val buttonChange = 100L
             val buttonChangeMore = 1000L
@@ -610,19 +666,33 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
                 changeBy(-buttonChangeMore)
             }
 
+            // Switch between the primary and the secondary subtitle.
+            // The title, the toggle label, the offset value and the cue list all follow it.
+            subtitleOffsetTargetBtt.setOnClickListener {
+                syncSecondary = !syncSecondary
+                updateSyncTargetViews()
+
+                currentOffset = activeOffset()
+                subtitleOffsetInput.text =
+                    Editable.Factory.getInstance()?.newEditable(currentOffset.toString())
+
+                refreshSubtitleList(scrollToActive = true)
+            }
+
             dialog.setOnDismissListener {
                 selectSubtitlesDialog = null
                 activity?.hideSystemUI()
             }
             applyBtt.setOnClickListener {
                 selectSubtitlesDialog = null
-                subtitleDelay = currentOffset
+                storeActiveOffset(currentOffset)
                 dialog.dismissSafe(activity)
                 player.seekTime(1L)
             }
             resetBtt.setOnClickListener {
                 selectSubtitlesDialog = null
-                subtitleDelay = 0
+                currentOffset = 0
+                storeActiveOffset(0)
                 dialog.dismissSafe(activity)
                 player.seekTime(1L)
             }

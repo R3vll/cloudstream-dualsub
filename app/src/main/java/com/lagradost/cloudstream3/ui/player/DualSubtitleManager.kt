@@ -193,7 +193,9 @@ object DualSubtitleManager {
 
     fun getCurrentSecondaryText(currentPosMs: Long): CharSequence? {
         if (secondaryCues.isEmpty()) return null
-        val targetTime = currentPosMs - secondaryDelayMs
+        // Same convention as the primary subtitle offset: a positive delay shifts the
+        // subtitle earlier, i.e. the lookup time is playback position + delay.
+        val targetTime = currentPosMs + secondaryDelayMs
         val matchingCue = secondaryCues.find { targetTime in it.startMs..it.endMs }
         return matchingCue?.text
     }

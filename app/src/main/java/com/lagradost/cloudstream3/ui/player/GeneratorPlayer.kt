@@ -1756,7 +1756,7 @@ class GeneratorPlayer : FullScreenPlayer() {
             is SearchResponse -> "res:$apiName:${meta.id ?: meta.url.ifBlank { meta.name }}"
 
             else -> state.response?.let {
-                "res:$apiName:${it.id ?: it.url.ifBlank { it.name }}"
+                "res:$apiName:${it.uniqueUrl.ifBlank { it.url }}"
             }
         }
     }

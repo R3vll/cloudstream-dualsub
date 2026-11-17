@@ -8,6 +8,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import androidx.annotation.OptIn
 import androidx.media3.common.text.Cue
 import androidx.media3.common.util.UnstableApi
 import com.fasterxml.jackson.annotation.JsonProperty
@@ -102,7 +103,7 @@ object DualSubtitleManager {
 
     private fun wrapRtl(text: String): String {
         if (text.isEmpty()) return text
-        return if (containsRtl(text)) "‫$text‬" else text
+        return if (containsRtl(text)) "\u202B$text\u202C" else text
     }
 
     fun clearSecondary() {

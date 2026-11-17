@@ -97,6 +97,7 @@ object CastHelper {
         subtitles: List<SubtitleData>,
         startIndex: Int? = null,
         startTime: Long? = null,
+        preferDirect: Boolean = true,
     ): Boolean {
         try {
             if (this == null) return false
@@ -104,6 +105,31 @@ object CastHelper {
             if (currentEpisodeIndex >= episodes.size) return false
 
             val epData = episodes[currentEpisodeIndex]
+
+            // The TV receiver fetches the video URL itself and cannot send the
+            // Referer/headers the phone player sends, so a link that needs them
+            // plays on the phone but fails on the TV. Prefer links the receiver
+            // can fetch directly; the rest stay as fallback.
+            val orderedLinks = currentLinks.sortedWith(
+                compareBy<ExtractorLink> { it.headers.isNotEmpty() || it.referer.isNotBlank() }
+            )
+            if (orderedLinks.isEmpty()) return false
+
+            // startIndex refers to currentLinks; remap it onto the reordered list.
+            val requestedLink = startIndex?.takeIf { it in currentLinks.indices }
+                ?.let { currentLinks[it] }
+            var index = requestedLink?.let { orderedLinks.indexOf(it) }
+                ?.takeIf { it >= 0 } ?: 0
+            // If the chosen link needs headers the receiver cannot send, start
+            // with the best direct link instead of one that is bound to fail.
+            // Only on the initial cast: retries walk the list in order and must
+            // not jump back to a link that already failed.
+            if (preferDirect && (orderedLinks[index].headers.isNotEmpty() || orderedLinks[index].referer.isNotBlank())) {
+                val firstDirect = orderedLinks.indexOfFirst {
+                    it.headers.isEmpty() && it.referer.isBlank()
+                }
+                if (firstDirect >= 0) index = firstDirect
+            }
 
             val holder =
                 MetadataHolder(
@@ -113,11 +139,9 @@ object CastHelper {
                     poster,
                     currentEpisodeIndex,
                     episodes,
-                    currentLinks,
+                    orderedLinks,
                     subtitles
                 )
-
-            val index = if (startIndex == null || startIndex < 0) 0 else startIndex
 
             val mediaItem =
                 getMediaInfo(epData, holder, index, JSONObject(holder.toJson()), subtitles)
@@ -128,7 +152,7 @@ object CastHelper {
                         .setCurrentTime(startTime ?: 0L).build()
                 )
             ) {
-                if (currentLinks.size > index + 1)
+                if (orderedLinks.size > index + 1)
                     startCast(
                         apiName,
                         isMovie,
@@ -136,10 +160,11 @@ object CastHelper {
                         poster,
                         currentEpisodeIndex,
                         episodes,
-                        currentLinks,
+                        orderedLinks,
                         subtitles,
                         index + 1,
-                        startTime
+                        startTime,
+                        preferDirect = false
                     )
             }
             return true

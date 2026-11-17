@@ -253,22 +253,50 @@ class GeneratorPlayer : FullScreenPlayer() {
             routeButton.isVisible = false
             return
         }
+        // Remember any session that is already running when the player opened,
+        // so a later session-started event for it does not auto cast.
+        // Best effort: getCastSession() is null until MainActivity's CastContext
+        // init finishes, in which case attachCastListener treats a connected
+        // session as one started from this player.
+        castSessionIdAtSetup = activity?.getCastSession()?.sessionId
         try {
             activity?.let { act ->
                 CastButtonFactory.setUpMediaRouteButton(act, routeButton)
-                CastContext.getSharedInstance(act.applicationContext) {
-                    it.run()
-                }.addOnSuccessListener {
-                    val sessionManager = it.sessionManager
-                    castSessionManager = sessionManager
-                    // If a cast session is already running when the player opened,
-                    // do not auto cast on its (replayed) session started event.
-                    castSessionIdAtSetup = sessionManager.currentCastSession?.sessionId
-                    sessionManager.addSessionManagerListener(castSessionListener)
+                // Prefer the already-initialised shared instance so the listener
+                // is attached synchronously. Attaching it only in the async
+                // callback races with the user tapping cast: a session that
+                // starts in that gap never reaches onSessionStarted, so the TV
+                // connects but no video loads.
+                val castContext = try {
+                    CastContext.getSharedInstance()
+                } catch (_: Exception) {
+                    null
+                }
+                if (castContext != null) {
+                    attachCastListener(castContext.sessionManager)
+                } else {
+                    CastContext.getSharedInstance(act.applicationContext) {
+                        it.run()
+                    }.addOnSuccessListener {
+                        attachCastListener(it.sessionManager)
+                    }
                 }
             }
         } catch (e: Exception) {
             logError(e)
+        }
+    }
+
+    private fun attachCastListener(sessionManager: SessionManager) {
+        castSessionManager = sessionManager
+        sessionManager.addSessionManagerListener(castSessionListener)
+        // The session may already have started in the gap before this listener
+        // was attached. If it is connected now and it is not the session that
+        // was already running when the player opened, cast to it instead of
+        // waiting for an event that already fired.
+        val current = sessionManager.currentCastSession
+        if (current != null && current.isConnected && current.sessionId != castSessionIdAtSetup) {
+            onCastSessionStarted(current.sessionId)
         }
     }
 

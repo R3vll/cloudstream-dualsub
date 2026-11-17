@@ -66,8 +66,8 @@ object CastHelper {
                 else -> {
                     val path = link.url.substringBefore('?').lowercase()
                     when {
-                        path.endsWith(".webm") -> MimeTypes.VIDEO_WEBM
-                        path.endsWith(".mkv") -> MimeTypes.VIDEO_MATROSKA
+                        path.endsWith(".webm") -> "video/webm"
+                        path.endsWith(".mkv") -> "video/x-matroska"
                         else -> MimeTypes.VIDEO_MP4
                     }
                 }

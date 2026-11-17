@@ -295,8 +295,9 @@ class GeneratorPlayer : FullScreenPlayer() {
         // was already running when the player opened, cast to it instead of
         // waiting for an event that already fired.
         val current = sessionManager.currentCastSession
-        if (current != null && current.isConnected && current.sessionId != castSessionIdAtSetup) {
-            onCastSessionStarted(current.sessionId)
+        val sessionId = current?.sessionId
+        if (current != null && current.isConnected && sessionId != null && sessionId != castSessionIdAtSetup) {
+            onCastSessionStarted(sessionId)
         }
     }
 

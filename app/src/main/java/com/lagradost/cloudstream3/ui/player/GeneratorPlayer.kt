@@ -51,9 +51,16 @@ import androidx.media3.ui.PlayerNotificationManager.MediaDescriptionAdapter
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.gms.cast.framework.CastButtonFactory
+import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.Session
+import com.google.android.gms.cast.framework.SessionManager
+import com.google.android.gms.cast.framework.SessionManagerListener
+import androidx.mediarouter.app.MediaRouteButton
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
+import com.lagradost.cloudstream3.CommonActivity.getCastSession
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.getAniListId
@@ -109,10 +116,12 @@ import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.getAu
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragmentDialog2
 import com.lagradost.cloudstream3.utils.AppContextUtils.getShortSeasonText
 import com.lagradost.cloudstream3.utils.AppContextUtils.html
+import com.lagradost.cloudstream3.utils.AppContextUtils.isCastApiAvailable
 import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.CastHelper.startCast
 import com.lagradost.cloudstream3.utils.DataStoreHelper.SelectedSourceData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getEpisodeSelectedSource
@@ -205,6 +214,104 @@ class GeneratorPlayer : FullScreenPlayer() {
                     episode.copy(position = data.position, duration = data.duration)
                 } ?: episode
             }
+
+    // region Chromecast
+    private var castSessionManager: SessionManager? = null
+    private var hasCastedCurrentSession = false
+    private var castSessionIdAtSetup: String? = null
+
+    private val castSessionListener = object : SessionManagerListener<Session> {
+        override fun onSessionStarting(session: Session) {}
+
+        override fun onSessionStarted(session: Session, sessionId: String) {
+            onCastSessionStarted(sessionId)
+        }
+
+        override fun onSessionStartFailed(session: Session, i: Int) {}
+
+        override fun onSessionEnding(session: Session) {}
+
+        override fun onSessionEnded(session: Session, error: Int) {
+            hasCastedCurrentSession = false
+        }
+
+        override fun onSessionResuming(session: Session, s: String) {}
+
+        override fun onSessionResumed(session: Session, wasSuspended: Boolean) {}
+
+        override fun onSessionSuspended(session: Session, i: Int) {}
+
+        override fun onSessionResumeFailed(session: Session, i: Int) {}
+    }
+
+    private fun setUpCastButton() {
+        // findViewById instead of the binding field: the TV controller layout has no cast button
+        val routeButton = playerBinding?.root
+            ?.findViewById<MediaRouteButton>(R.id.player_media_route_button) ?: return
+        val ctx = context ?: return
+        if (!ctx.isCastApiAvailable() || currentMeta !is ResultEpisode) {
+            routeButton.isVisible = false
+            return
+        }
+        try {
+            activity?.let { act ->
+                CastButtonFactory.setUpMediaRouteButton(act, routeButton)
+                CastContext.getSharedInstance(act.applicationContext) {
+                    it.run()
+                }.addOnSuccessListener {
+                    val sessionManager = it.sessionManager
+                    castSessionManager = sessionManager
+                    // If a cast session is already running when the player opened,
+                    // do not auto cast on its (replayed) session started event.
+                    castSessionIdAtSetup = sessionManager.currentCastSession?.sessionId
+                    sessionManager.addSessionManagerListener(castSessionListener)
+                }
+            }
+        } catch (e: Exception) {
+            logError(e)
+        }
+    }
+
+    private fun onCastSessionStarted(sessionId: String) {
+        if (sessionId == castSessionIdAtSetup || hasCastedCurrentSession) return
+        val meta = currentMeta as? ResultEpisode ?: return
+
+        val links = viewModel.state.sortLinks(currentQualityProfile)
+            .filter { it.shouldUseLink }
+            .mapNotNull { it.link.first }
+        if (links.isEmpty()) {
+            showToast(R.string.no_links_found_toast, Toast.LENGTH_SHORT)
+            return
+        }
+        val selectedLink = currentSelectedLink?.first
+        val startIndex =
+            links.indexOfFirst { it.url == selectedLink?.url }.takeIf { it >= 0 } ?: 0
+
+        hasCastedCurrentSession = true
+
+        // Main needed because getCastSession needs to be on main thread
+        runOnMainThread {
+            val success = activity?.getCastSession()?.startCast(
+                meta.apiName,
+                meta.tvType.isMovieType(),
+                meta.headerName,
+                meta.poster,
+                meta.index,
+                allMeta ?: listOf(meta),
+                links,
+                viewModel.state.subtitles.toList(),
+                startIndex = startIndex,
+                startTime = player.getPosition(),
+            ) ?: false
+            if (success) {
+                // The cast notification/expanded controller takes over from here
+                exitPlayer()
+            } else {
+                hasCastedCurrentSession = false
+            }
+        }
+    }
+    // endregion
 
     private fun setSubtitles(subtitle: SubtitleData?, userInitiated: Boolean): Boolean {
         // If subtitle is changed and user initiated -> Save the language
@@ -1922,6 +2029,11 @@ class GeneratorPlayer : FullScreenPlayer() {
     override fun onDestroy() {
         ResultFragment.updateUI()
         currentVerifyLink?.cancel()
+        try {
+            castSessionManager?.removeSessionManagerListener(castSessionListener)
+        } catch (e: Exception) {
+            logError(e)
+        }
         super.onDestroy()
     }
 
@@ -2501,6 +2613,8 @@ class GeneratorPlayer : FullScreenPlayer() {
             // Recreated view, so we need to recreate the
             loadLink(selectedLink, true)
         }
+
+        setUpCastButton()
 
         binding.overlayLoadingSkipButton.setOnClickListener {
             // Mark as "success" early

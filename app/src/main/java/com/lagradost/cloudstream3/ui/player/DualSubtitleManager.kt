@@ -9,6 +9,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import androidx.media3.common.text.Cue
+import androidx.media3.common.util.UnstableApi
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.setSubtitleAlignment
 import com.lagradost.cloudstream3.ui.player.SubtitleData
@@ -52,6 +53,7 @@ data class DualSubtitleCue(
     val text: CharSequence
 )
 
+@OptIn(UnstableApi::class)
 object DualSubtitleManager {
     var secondarySub: SubtitleData? = null
     var secondaryCues: List<DualSubtitleCue> = emptyList()

@@ -44,12 +44,17 @@ object CastHelper {
             movieMetadata.addImage(WebImage(srcPoster.toUri()))
         }
 
+        // The default receiver only renders WebVTT text tracks, so other
+        // formats (srt, ass) are left out instead of risking a failed load.
         var subIndex = 0
-        val tracks = subtitles.map {
+        val tracks = subtitles.filter {
+            it.url.substringBefore('?').lowercase().endsWith(".vtt")
+        }.map {
             MediaTrack.Builder(subIndex++.toLong(), MediaTrack.TYPE_TEXT)
                 .setName(it.name)
                 .setSubtype(MediaTrack.SUBTYPE_SUBTITLES)
                 .setContentId(it.url)
+                .setContentType("text/vtt")
                 .build()
         }
 
@@ -58,7 +63,14 @@ object CastHelper {
             .setContentType(when(link.type) {
                 ExtractorLinkType.M3U8 -> MimeTypes.APPLICATION_M3U8
                 ExtractorLinkType.DASH -> MimeTypes.APPLICATION_MPD
-                else -> MimeTypes.VIDEO_MP4
+                else -> {
+                    val path = link.url.substringBefore('?').lowercase()
+                    when {
+                        path.endsWith(".webm") -> MimeTypes.VIDEO_WEBM
+                        path.endsWith(".mkv") -> MimeTypes.VIDEO_MATROSKA
+                        else -> MimeTypes.VIDEO_MP4
+                    }
+                }
             })
             .setMetadata(movieMetadata)
             .setMediaTracks(tracks)
@@ -76,12 +88,15 @@ object CastHelper {
         if (pending == null) return
         main {
             val res = withContext(Dispatchers.IO) { pending.await() }
-            when (res.status.statusCode) {
-                CastStatusCodes.FAILED -> {
+            val code = res.status.statusCode
+            when {
+                res.status.isSuccess -> Unit
+                // The user stopped or replaced the cast, do not skip to the next link.
+                code == CastStatusCodes.CANCELED || code == CastStatusCodes.INTERRUPTED -> Unit
+                else -> {
                     callback.invoke(true)
-                    println("FAILED AND LOAD NEXT")
+                    println("CAST FAILED ($code) AND LOAD NEXT")
                 }
-                else -> Unit //IDK DO SMTH HERE
             }
         }
     }

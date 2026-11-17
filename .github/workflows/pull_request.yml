@@ -34,13 +34,6 @@ jobs:
     - name: Run Gradle
       run: ./gradlew assemblePrereleaseDebug lint check
 
-    # Temporary: the Actions log only prints the first lint error, so print
-    # the full lint text report into the log to fix the errors. Remove this
-    # step again once the lint errors are fixed.
-    - name: Print lint report
-      if: failure()
-      run: cat app/build/intermediates/lint_intermediate_text_report/prereleaseDebug/lintReportPrereleaseDebug/lint-results-prereleaseDebug.txt || true
-
     - name: Upload Artifact
       uses: actions/upload-artifact@v7
       with:

@@ -813,8 +813,11 @@ object AppContextUtils {
 
         try {
             applicationContext?.let {
-                val task = CastContext.getSharedInstance(it) { it.run() }
-                task.result
+                // Do not read task.result here: it throws while CastContext is
+                // still initialising, which hid the cast button on a cold start.
+                // Kicking off the shared instance is enough to prove the API
+                // is usable; listeners attach through the task callbacks.
+                CastContext.getSharedInstance(it) { it.run() }
             }
         } catch (e: Exception) {
             println(e)

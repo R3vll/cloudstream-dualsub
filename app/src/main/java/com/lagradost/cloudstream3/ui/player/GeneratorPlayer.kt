@@ -51,9 +51,16 @@ import androidx.media3.ui.PlayerNotificationManager.MediaDescriptionAdapter
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.gms.cast.framework.CastButtonFactory
+import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.Session
+import com.google.android.gms.cast.framework.SessionManager
+import com.google.android.gms.cast.framework.SessionManagerListener
+import androidx.mediarouter.app.MediaRouteButton
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
+import com.lagradost.cloudstream3.CommonActivity.getCastSession
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.getAniListId
@@ -110,11 +117,16 @@ import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.getAu
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragmentDialog2
 import com.lagradost.cloudstream3.utils.AppContextUtils.getShortSeasonText
 import com.lagradost.cloudstream3.utils.AppContextUtils.html
+import com.lagradost.cloudstream3.utils.AppContextUtils.isCastApiAvailable
 import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.CastHelper.startCast
+import com.lagradost.cloudstream3.utils.DataStoreHelper.SelectedSourceData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getEpisodeSelectedSource
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setEpisodeSelectedSource
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
@@ -203,6 +215,133 @@ class GeneratorPlayer : FullScreenPlayer() {
                     episode.copy(position = data.position, duration = data.duration)
                 } ?: episode
             }
+
+    // region Chromecast
+    private var castSessionManager: SessionManager? = null
+    private var hasCastedCurrentSession = false
+    private var castSessionIdAtSetup: String? = null
+
+    private val castSessionListener = object : SessionManagerListener<Session> {
+        override fun onSessionStarting(session: Session) {}
+
+        override fun onSessionStarted(session: Session, sessionId: String) {
+            onCastSessionStarted(sessionId)
+        }
+
+        override fun onSessionStartFailed(session: Session, i: Int) {}
+
+        override fun onSessionEnding(session: Session) {}
+
+        override fun onSessionEnded(session: Session, error: Int) {
+            hasCastedCurrentSession = false
+        }
+
+        override fun onSessionResuming(session: Session, s: String) {}
+
+        override fun onSessionResumed(session: Session, wasSuspended: Boolean) {}
+
+        override fun onSessionSuspended(session: Session, i: Int) {}
+
+        override fun onSessionResumeFailed(session: Session, i: Int) {}
+    }
+
+    private fun setUpCastButton() {
+        // findViewById instead of the binding field: the TV controller layout has no cast button
+        val routeButton = playerBinding?.root
+            ?.findViewById<MediaRouteButton>(R.id.player_media_route_button) ?: return
+        val ctx = context ?: return
+        if (!ctx.isCastApiAvailable() || currentMeta !is ResultEpisode) {
+            routeButton.isVisible = false
+            return
+        }
+        // Remember any session that is already running when the player opened,
+        // so a later session-started event for it does not auto cast.
+        // Best effort: getCastSession() is null until MainActivity's CastContext
+        // init finishes, in which case attachCastListener treats a connected
+        // session as one started from this player.
+        castSessionIdAtSetup = activity?.getCastSession()?.sessionId
+        try {
+            activity?.let { act ->
+                CastButtonFactory.setUpMediaRouteButton(act, routeButton)
+                // Prefer the already-initialised shared instance so the listener
+                // is attached synchronously. Attaching it only in the async
+                // callback races with the user tapping cast: a session that
+                // starts in that gap never reaches onSessionStarted, so the TV
+                // connects but no video loads.
+                val castContext = try {
+                    CastContext.getSharedInstance()
+                } catch (_: Exception) {
+                    null
+                }
+                if (castContext != null) {
+                    attachCastListener(castContext.sessionManager)
+                } else {
+                    CastContext.getSharedInstance(act.applicationContext) {
+                        it.run()
+                    }.addOnSuccessListener {
+                        attachCastListener(it.sessionManager)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logError(e)
+        }
+    }
+
+    private fun attachCastListener(sessionManager: SessionManager) {
+        castSessionManager = sessionManager
+        sessionManager.addSessionManagerListener(castSessionListener)
+        // The session may already have started in the gap before this listener
+        // was attached. If it is connected now and it is not the session that
+        // was already running when the player opened, cast to it instead of
+        // waiting for an event that already fired.
+        val current = sessionManager.currentCastSession
+        val sessionId = current?.sessionId
+        if (current != null && current.isConnected && sessionId != null && sessionId != castSessionIdAtSetup) {
+            onCastSessionStarted(sessionId)
+        }
+    }
+
+    private fun onCastSessionStarted(sessionId: String) {
+        if (sessionId == castSessionIdAtSetup || hasCastedCurrentSession) return
+        val meta = currentMeta as? ResultEpisode ?: return
+
+        val links = viewModel.state.sortLinks(currentQualityProfile)
+            .filter { it.shouldUseLink }
+            .mapNotNull { it.link.first }
+        if (links.isEmpty()) {
+            showToast(R.string.no_links_found_toast, Toast.LENGTH_SHORT)
+            return
+        }
+        val selectedLink = currentSelectedLink?.first
+        val startIndex =
+            links.indexOfFirst { it.url == selectedLink?.url }.takeIf { it >= 0 } ?: 0
+
+        hasCastedCurrentSession = true
+
+        // Main needed because getCastSession needs to be on main thread
+        runOnMainThread {
+            val success = activity?.getCastSession()?.startCast(
+                meta.apiName,
+                meta.tvType.isMovieType(),
+                meta.headerName,
+                meta.poster,
+                meta.index,
+                allMeta ?: listOf(meta),
+                links,
+                viewModel.state.subtitles.toList(),
+                startIndex = startIndex,
+                startTime = player.getPosition(),
+            ) ?: false
+            if (success) {
+                // The cast notification/expanded controller takes over from here
+                exitPlayer()
+            } else {
+                hasCastedCurrentSession = false
+            }
+        }
+    }
+    // endregion
 
     private fun setSubtitles(subtitle: SubtitleData?, userInitiated: Boolean): Boolean {
         // If subtitle is changed and user initiated -> Save the language
@@ -1490,6 +1629,8 @@ class GeneratorPlayer : FullScreenPlayer() {
 
                     if (init) {
                         filteredLinks.getOrNull(sourceIndex)?.let {
+                            // The user manually picked this source, remember it for this episode
+                            saveSelectedSource(it.link)
                             loadLink(it.link, true)
                         }
                     }
@@ -1660,6 +1801,9 @@ class GeneratorPlayer : FullScreenPlayer() {
     override fun playerError(exception: Throwable) {
         currentSelectedLink?.let { link ->
             viewModel.modifyState { this.addError(link) }
+            // The source we (or the user) selected cannot be played: drop the saved
+            // preference so the episode safely falls back next time it is opened
+            clearSavedSource(link)
         }
 
         val currentUrl =
@@ -1711,22 +1855,13 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         val links = viewModel.state.sortLinks(currentQualityProfile)
 
-        // Restore the source used last time this content was played. Falls back to the
-        // regular "first usable link" behaviour when it is missing or no longer available.
-        val savedSource = LastSourceStore.restore(currentContentId())
-
-        val rememberedLink = savedSource?.let { saved ->
-            links.firstOrNull { displayLink ->
-                displayLink.shouldUseLink && LastSourceStore.matchesExactly(displayLink.link, saved)
-            }?.link
-                ?: links.firstOrNull { displayLink ->
-                    displayLink.shouldUseLink && LastSourceStore.matches(displayLink.link, saved)
-                }?.link
-        }
-
+        // Restore the last manually selected source of this episode, if it is still available
+        val savedLink = findSavedLink(
+            links,
+            getEpisodeSelectedSource(viewModel.state.generatorState?.id)
+        )
         val firstAvailableLink =
-            rememberedLink ?: links.firstOrNull { it.shouldUseLink }?.link
-
+            savedLink?.link ?: links.firstOrNull { it.shouldUseLink }?.link
         if (firstAvailableLink == null) {
             noLinksFound()
             return
@@ -1832,6 +1967,105 @@ class GeneratorPlayer : FullScreenPlayer() {
         return nextPotentialLink?.value
     }
 
+    /** Converts the current link to a stable identifier, so the source can be restored later.
+     * Streaming URLs are intentionally not persisted as they may expire. */
+    private fun VideoLink.toSelectedSourceData(): SelectedSourceData? {
+        val link = first
+        if (link != null) {
+            return SelectedSourceData(
+                source = link.source,
+                name = link.name,
+                quality = link.quality,
+            )
+        }
+
+        val uri = second
+        if (uri != null) {
+            return SelectedSourceData(
+                name = uri.name,
+                uriId = uri.id,
+            )
+        }
+
+        return null
+    }
+
+    /** Returns true if this link matches the saved source identifier. */
+    private fun VideoLink.matchesSavedSource(saved: SelectedSourceData): Boolean {
+        val link = first
+        if (link != null && saved.uriId == null) {
+            return (saved.source != null &&
+                    link.source.equals(saved.source, ignoreCase = true) &&
+                    link.name.equals(saved.name, ignoreCase = true) &&
+                    (saved.quality == null || link.quality == saved.quality)) ||
+                    link.name.equals(saved.name, ignoreCase = true)
+        }
+
+        val uri = second
+        if (uri != null && saved.uriId != null) {
+            return uri.id == saved.uriId || uri.name.equals(saved.name, ignoreCase = true)
+        }
+
+        return false
+    }
+
+    /** Finds the saved source among the given links, most exact match first, or null when gone. */
+    private fun findSavedLink(links: List<DisplayLink>, saved: SelectedSourceData?): DisplayLink? {
+        if (saved == null) return null
+
+        // Exact provider + server + quality
+        links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.first?.let { link ->
+                saved.source != null &&
+                        link.source.equals(saved.source, ignoreCase = true) &&
+                        link.name.equals(saved.name, ignoreCase = true) &&
+                        (saved.quality == null || link.quality == saved.quality)
+            } == true
+        }?.let { return it }
+
+        // Same server from the same provider, different quality
+        links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.first?.let { link ->
+                saved.source != null &&
+                        link.source.equals(saved.source, ignoreCase = true) &&
+                        link.name.equals(saved.name, ignoreCase = true)
+            } == true
+        }?.let { return it }
+
+        // Same server name from another provider
+        links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.first?.name
+                .equals(saved.name, ignoreCase = true)
+        }?.let { return it }
+
+        // Local file
+        return links.firstOrNull { displayLink ->
+            displayLink.shouldUseLink && displayLink.link.second?.let { uri ->
+                (saved.uriId != null && uri.id == saved.uriId) ||
+                        uri.name.equals(saved.name, ignoreCase = true)
+            } == true
+        }
+    }
+
+    /** Saves this link as the last manually selected source of the current episode. */
+    private fun saveSelectedSource(link: VideoLink) {
+        val id = viewModel.state.generatorState?.id ?: return
+        link.toSelectedSourceData()?.let { data ->
+            setEpisodeSelectedSource(id, data)
+            Log.i(TAG, "Saved selected source for episode $id: $data")
+        }
+    }
+
+    /** Removes the saved source of the current episode, used when it can no longer be loaded. */
+    private fun clearSavedSource(link: VideoLink) {
+        val id = viewModel.state.generatorState?.id ?: return
+        val saved = getEpisodeSelectedSource(id) ?: return
+        if (link.matchesSavedSource(saved)) {
+            setEpisodeSelectedSource(id, null)
+            Log.i(TAG, "Cleared saved source for episode $id as it failed to load")
+        }
+    }
+
     override fun hasNextMirror(): Boolean {
         return getNextLink() != null
     }
@@ -1849,6 +2083,11 @@ class GeneratorPlayer : FullScreenPlayer() {
     override fun onDestroy() {
         ResultFragment.updateUI()
         currentVerifyLink?.cancel()
+        try {
+            castSessionManager?.removeSessionManagerListener(castSessionListener)
+        } catch (e: Exception) {
+            logError(e)
+        }
         super.onDestroy()
     }
 
@@ -2428,6 +2667,8 @@ class GeneratorPlayer : FullScreenPlayer() {
             // Recreated view, so we need to recreate the
             loadLink(selectedLink, true)
         }
+
+        setUpCastButton()
 
         binding.overlayLoadingSkipButton.setOnClickListener {
             // Mark as "success" early

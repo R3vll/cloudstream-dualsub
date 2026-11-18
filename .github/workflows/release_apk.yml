@@ -1,0 +1,45 @@
+name: Release APK
+
+# Builds the debug APK and publishes it as a GitHub pre-release.
+# Runs on a manual trigger, or when the release/cast-apk branch is pushed.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/cast-apk
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: 17
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v5
+
+    - name: Build APK
+      run: ./gradlew assemblePrereleaseDebug
+
+    - name: Publish release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cp app/build/outputs/apk/prerelease/debug/*.apk cloudstream-dualsub-cast-fix.apk
+        TAG="cast-fix-${{ github.run_number }}"
+        gh release create "$TAG" cloudstream-dualsub-cast-fix.apk \
+          --target "${{ github.sha }}" \
+          --prerelease \
+          --title "Cast fix build $TAG" \
+          --notes "Debug APK built from ${{ github.sha }} (branch ${{ github.ref_name }}), includes the casting fixes."

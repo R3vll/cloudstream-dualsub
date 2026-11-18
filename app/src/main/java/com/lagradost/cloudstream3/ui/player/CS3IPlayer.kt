@@ -107,6 +107,7 @@ import com.lagradost.cloudstream3.ui.settings.Globals.PHONE
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.ui.subtitles.SaveCaptionStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyle
+import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.getCurrentSavedStyle
 import com.lagradost.cloudstream3.utils.AppContextUtils.isUsingMobileData
 import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.CLEARKEY_DRM_UUID
@@ -356,6 +357,9 @@ class CS3IPlayer : IPlayer {
     fun setDualPreferredSubtitles(primary: SubtitleData?, secondary: SubtitleData?): Boolean {
         currentSubtitles = primary
         secondarySubtitleData = secondary
+
+        // Keep the runtime dual subtitle layout/style in sync with the persisted preferences
+        DualSubtitleManager.applyStyle(getCurrentSavedStyle())
 
         if (secondary == null) {
             DualSubtitleManager.clearSecondary()
@@ -1308,7 +1312,7 @@ class CS3IPlayer : IPlayer {
 
                         val currentPos = exoPlayer?.currentPosition ?: 0L
                         val secondaryText = DualSubtitleManager.getCurrentSecondaryText(currentPos)
-                        val finalCues = DualSubtitleManager.buildMergedCues(combinedCues, secondaryText)
+                        val finalCues = DualSubtitleManager.buildFinalCues(combinedCues, secondaryText)
 
                         subtitleHelper.subtitleView?.setCues(finalCues)
                     }

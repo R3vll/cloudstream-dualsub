@@ -49,6 +49,7 @@ import kotlin.reflect.KProperty
 
 const val VIDEO_POS_DUR = "video_pos_dur"
 const val VIDEO_WATCH_STATE = "video_watch_state"
+const val VIDEO_SELECTED_SOURCE = "video_selected_source"
 const val RESULT_WATCH_STATE = "result_watch_state"
 const val RESULT_WATCH_STATE_DATA = "result_watch_state_data"
 const val RESULT_SUBSCRIBED_STATE_DATA = "result_subscribed_state_data"
@@ -255,6 +256,20 @@ object DataStoreHelper {
     data class PosDur(
         @JsonProperty("position") @SerialName("position") val position: Long,
         @JsonProperty("duration") @SerialName("duration") val duration: Long,
+    )
+
+    /**
+     * Stable identifier of the last manually selected video source of an episode/movie,
+     * persisted per episode id. Never stores streaming URLs as they expire;
+     * instead the provider name (source) and server name are stored.
+     */
+    @Serializable
+    data class SelectedSourceData(
+        @JsonProperty("source") @SerialName("source") val source: String? = null,
+        @JsonProperty("name") @SerialName("name") val name: String,
+        @JsonProperty("quality") @SerialName("quality") val quality: Int? = null,
+        /** Only set for local file (ExtractorUri) selections */
+        @JsonProperty("uriId") @SerialName("uriId") val uriId: Int? = null,
     )
 
     fun PosDur.fixVisual(): PosDur {
@@ -703,6 +718,21 @@ object DataStoreHelper {
         if (id == null) return
         if (dur < 30_000) return // too short
         setKey("$currentAccount/$VIDEO_POS_DUR", id.toString(), PosDur(pos, dur))
+    }
+
+    /** Saves the last manually selected source of an episode, null removes it */
+    fun setEpisodeSelectedSource(id: Int?, data: SelectedSourceData?) {
+        if (id == null) return
+        if (data == null) {
+            removeKey("$currentAccount/$VIDEO_SELECTED_SOURCE", id.toString())
+        } else {
+            setKey("$currentAccount/$VIDEO_SELECTED_SOURCE", id.toString(), data)
+        }
+    }
+
+    fun getEpisodeSelectedSource(id: Int?): SelectedSourceData? {
+        if (id == null) return null
+        return getKey<SelectedSourceData>("$currentAccount/$VIDEO_SELECTED_SOURCE", id.toString())
     }
 
     /**

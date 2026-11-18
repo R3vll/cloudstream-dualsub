@@ -69,7 +69,6 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.getMalId
 import com.lagradost.cloudstream3.LoadResponse.Companion.getTMDbId
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
-import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.databinding.DialogOnlineSubtitlesBinding
@@ -662,8 +661,6 @@ class GeneratorPlayer : FullScreenPlayer() {
         // uiReset() // Removed due to UX
 
         currentSelectedLink = link
-        // Remember this source so reopening the same content restores it.
-        LastSourceStore.save(currentContentId(), link)
         //  setEpisodes(viewModel.getAllMeta() ?: emptyList())
         setPlayerDimen(null)
         setTitle()
@@ -1872,28 +1869,6 @@ class GeneratorPlayer : FullScreenPlayer() {
         }
         loadLink(firstAvailableLink, false)
         showPlayerMetadata()
-    }
-
-    /**
-     * Stable id of the content currently loaded, used to key the remembered source.
-     * Episodes are tracked individually so different episodes keep different sources.
-     */
-    private fun currentContentId(): String? {
-        val state = viewModel.state.generatorState ?: return null
-        val apiName = state.response?.apiName ?: ""
-
-        return when (val meta = state.meta) {
-            is ResultEpisode -> "ep:$apiName:${meta.parentId}:${meta.id}"
-            is ExtractorUri ->
-                "uri:$apiName:${meta.parentId ?: meta.id ?: -1}:${meta.episode ?: -1}:${meta.season ?: -1}"
-
-            // Movies and other non-episode content.
-            is SearchResponse -> "res:$apiName:${meta.id ?: meta.url.ifBlank { meta.name }}"
-
-            else -> state.response?.let {
-                "res:$apiName:${it.uniqueUrl.ifBlank { it.url }}"
-            }
-        }
     }
 
     private fun showPlayerMetadata() {

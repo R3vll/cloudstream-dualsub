@@ -23,7 +23,8 @@ object CastHelper {
         holder: MetadataHolder,
         index: Int,
         data: JSONObject?,
-        subtitles: List<SubtitleData>
+        subtitles: List<SubtitleData>,
+        extraTracks: List<MediaTrack> = emptyList()
     ): MediaInfo {
         val link = holder.currentLinks[index]
         val movieMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE)
@@ -68,7 +69,7 @@ object CastHelper {
                 }
             })
             .setMetadata(movieMetadata)
-            .setMediaTracks(tracks)
+            .setMediaTracks(tracks + extraTracks)
         data?.let {
             builder.setCustomData(data)
         }
@@ -96,6 +97,10 @@ object CastHelper {
         }
     }
 
+    // The dual-sub pair currently sent to the TV as one merged track, if any.
+    var activeDualSubtitles: Pair<SubtitleData, SubtitleData>? = null
+        private set
+
     fun CastSession?.startCast(
         apiName: String,
         isMovie: Boolean,
@@ -109,9 +114,59 @@ object CastHelper {
         startTime: Long? = null,
         preferDirect: Boolean = true,
         activeSubtitle: SubtitleData? = null,
+        secondarySubtitle: SubtitleData? = null,
+    ): Boolean {
+        if (this == null) return false
+        if (episodes.isEmpty()) return false
+        if (currentEpisodeIndex >= episodes.size) return false
+
+        if (activeSubtitle != null && secondarySubtitle != null) {
+            // Dual subtitles on the TV: the default receiver renders a single
+            // text track, so both languages are merged into one WebVTT served
+            // from the phone. The download is async; the load happens after.
+            activeDualSubtitles = activeSubtitle to secondarySubtitle
+            val session = this
+            main {
+                val merged = withContext(Dispatchers.IO) {
+                    CastDualSub.buildMergedTrack(
+                        castVttTracks(subtitles).size,
+                        activeSubtitle,
+                        secondarySubtitle,
+                    )
+                }
+                session.startCastInternal(
+                    apiName, isMovie, title, poster, currentEpisodeIndex, episodes,
+                    currentLinks, subtitles, startIndex, startTime, preferDirect,
+                    activeSubtitle, merged,
+                )
+            }
+            return true
+        }
+
+        activeDualSubtitles = null
+        return startCastInternal(
+            apiName, isMovie, title, poster, currentEpisodeIndex, episodes,
+            currentLinks, subtitles, startIndex, startTime, preferDirect,
+            activeSubtitle, null,
+        )
+    }
+
+    private fun CastSession.startCastInternal(
+        apiName: String,
+        isMovie: Boolean,
+        title: String?,
+        poster: String?,
+        currentEpisodeIndex: Int,
+        episodes: List<ResultEpisode>,
+        currentLinks: List<ExtractorLink>,
+        subtitles: List<SubtitleData>,
+        startIndex: Int? = null,
+        startTime: Long? = null,
+        preferDirect: Boolean = true,
+        activeSubtitle: SubtitleData? = null,
+        mergedTrack: MergedCastTrack? = null,
     ): Boolean {
         try {
-            if (this == null) return false
             if (episodes.isEmpty()) return false
             if (currentEpisodeIndex >= episodes.size) return false
 
@@ -144,7 +199,7 @@ object CastHelper {
 
             // Remember which tracks are active so mid-cast switches keep the
             // other track active too. The audio default is left to the receiver.
-            activeTextTrackId = activeSubtitle?.let { sel ->
+            activeTextTrackId = mergedTrack?.id ?: activeSubtitle?.let { sel ->
                 castVttTracks(subtitles).firstOrNull { it.second.url == sel.url }?.first
             }
             activeAudioTrackId = null
@@ -162,7 +217,21 @@ object CastHelper {
                 )
 
             val mediaItem =
-                getMediaInfo(epData, holder, index, JSONObject(holder.toJson()), subtitles)
+                getMediaInfo(
+                    epData,
+                    holder,
+                    index,
+                    JSONObject(holder.toJson()),
+                    subtitles,
+                    extraTracks = listOfNotNull(mergedTrack?.let { track ->
+                        MediaTrack.Builder(track.id, MediaTrack.TYPE_TEXT)
+                            .setName(track.name)
+                            .setSubtype(MediaTrack.SUBTYPE_SUBTITLES)
+                            .setContentId(track.url)
+                            .setContentType("text/vtt")
+                            .build()
+                    })
+                )
 
             val loadRequest = MediaLoadRequestData.Builder().setMediaInfo(mediaItem)
                 .setCurrentTime(startTime ?: 0L)
@@ -172,7 +241,7 @@ object CastHelper {
                 this.remoteMediaClient?.load(loadRequest.build())
             ) {
                 if (orderedLinks.size > index + 1)
-                    startCast(
+                    startCastInternal(
                         apiName,
                         isMovie,
                         title,
@@ -184,7 +253,8 @@ object CastHelper {
                         index + 1,
                         startTime,
                         preferDirect = false,
-                        activeSubtitle = activeSubtitle
+                        activeSubtitle = activeSubtitle,
+                        mergedTrack = mergedTrack
                     )
             }
             return true
@@ -219,6 +289,7 @@ object CastHelper {
     /** Switch the subtitle shown on the TV mid-cast. Pass null to hide subtitles. */
     fun CastSession?.setCastSubtitle(subtitles: List<SubtitleData>, subtitle: SubtitleData?) {
         if (this == null) return
+        activeDualSubtitles = null
         activeTextTrackId = subtitle?.let { sel ->
             castVttTracks(subtitles).firstOrNull { it.second.url == sel.url }?.first
         }
@@ -235,6 +306,14 @@ object CastHelper {
     fun CastSession?.setCastAudioTrack(trackId: Long) {
         if (this == null) return
         activeAudioTrackId = trackId
+        applyActiveCastTracks()
+    }
+
+    /** Switch the active text track by receiver track id (used by the cast controller). */
+    fun CastSession?.setCastTextTrackId(trackId: Long?) {
+        if (this == null) return
+        activeDualSubtitles = null
+        activeTextTrackId = trackId
         applyActiveCastTracks()
     }
     // endregion

@@ -121,6 +121,9 @@ import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.CastHelper.getCastAudioTracks
+import com.lagradost.cloudstream3.utils.CastHelper.setCastAudioTrack
+import com.lagradost.cloudstream3.utils.CastHelper.setCastSubtitle
 import com.lagradost.cloudstream3.utils.CastHelper.startCast
 import com.lagradost.cloudstream3.utils.DataStoreHelper.SelectedSourceData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
@@ -219,6 +222,9 @@ class GeneratorPlayer : FullScreenPlayer() {
     private var castSessionManager: SessionManager? = null
     private var hasCastedCurrentSession = false
     private var castSessionIdAtSetup: String? = null
+    // Remembered from the last startCast so sources/subtitles can switch mid-cast.
+    private var castLinks: List<ExtractorLink> = emptyList()
+    private var castSubtitles: List<SubtitleData> = emptyList()
 
     private val castSessionListener = object : SessionManagerListener<Session> {
         override fun onSessionStarting(session: Session) {}
@@ -323,6 +329,8 @@ class GeneratorPlayer : FullScreenPlayer() {
             links.indexOfFirst { it.url == selectedLink?.url }.takeIf { it >= 0 } ?: 0
 
         hasCastedCurrentSession = true
+        castLinks = links
+        castSubtitles = viewModel.state.subtitles.toList()
 
         // Main needed because getCastSession needs to be on main thread
         runOnMainThread {
@@ -334,16 +342,75 @@ class GeneratorPlayer : FullScreenPlayer() {
                 meta.index,
                 allMeta ?: listOf(meta),
                 links,
-                viewModel.state.subtitles.toList(),
+                castSubtitles,
                 startIndex = startIndex,
                 startTime = player.getPosition(),
+                activeSubtitle = currentSelectedSubtitles,
             ) ?: false
             if (success) {
-                // The cast notification/expanded controller takes over from here
-                exitPlayer()
+                // Keep the player open: its Sources/Subtitles/Tracks pickers are
+                // wired to the cast session. Local playback pauses; the TV plays.
+                player.handleEvent(CSPlayerEvent.Pause)
             } else {
                 hasCastedCurrentSession = false
             }
+        }
+    }
+
+    /** True while a cast this player started is still connected. */
+    private fun isCastingActive(): Boolean {
+        return hasCastedCurrentSession && activity?.getCastSession()?.isConnected == true
+    }
+
+    /** Cast a specific source to the TV, used to switch source mid-cast. */
+    private fun castLink(link: VideoLink) {
+        val meta = currentMeta as? ResultEpisode ?: return
+        val extractorLink = link.first ?: return
+        val links = castLinks.ifEmpty {
+            viewModel.state.sortLinks(currentQualityProfile)
+                .filter { it.shouldUseLink }
+                .mapNotNull { l -> l.link.first }
+        }
+        val index = links.indexOfFirst { it.url == extractorLink.url }
+        if (index < 0) return
+        val subs = castSubtitles.ifEmpty { viewModel.state.subtitles.toList() }
+        currentSelectedLink = link
+        // Main needed because getCastSession needs to be on main thread
+        runOnMainThread {
+            val session = activity?.getCastSession() ?: return@runOnMainThread
+            session.startCast(
+                meta.apiName,
+                meta.tvType.isMovieType(),
+                meta.headerName,
+                meta.poster,
+                meta.index,
+                allMeta ?: listOf(meta),
+                links,
+                subs,
+                startIndex = index,
+                // Continue where the TV stopped, like a local source switch does
+                startTime = session.remoteMediaClient?.approximateStreamPosition ?: 0L,
+                activeSubtitle = currentSelectedSubtitles,
+            )
+        }
+    }
+
+    /** Audio track picker for the TV while casting (tracks come from the receiver). */
+    private fun showCastAudioTracksDialogue() {
+        val act = activity ?: return
+        val session = act.getCastSession() ?: return
+        val audioTracks = session.getCastAudioTracks()
+        if (audioTracks.isEmpty()) {
+            showToast("No alternative audio tracks on this source", Toast.LENGTH_SHORT)
+            return
+        }
+        act.showDialog(
+            audioTracks.map { it.name ?: it.language ?: "Track ${it.id}" },
+            0,
+            "Audio",
+            true,
+            {}) {
+            session.setCastAudioTrack(audioTracks[it].id)
         }
     }
     // endregion
@@ -362,6 +429,14 @@ class GeneratorPlayer : FullScreenPlayer() {
                 setKey(SUBTITLE_AUTO_SELECT_KEY, subtitleLanguageTagIETF)
                 preferredAutoSelectSubtitles = subtitleLanguageTagIETF
             }
+        }
+
+        if (userInitiated && isCastingActive()) {
+            // While casting, subtitles switch on the TV, not the local player
+            val subs = castSubtitles.ifEmpty { viewModel.state.subtitles.toList() }
+            activity?.getCastSession().setCastSubtitle(subs, subtitle)
+            currentSelectedSubtitles = subtitle
+            return true
         }
 
         currentSelectedSubtitles = subtitle
@@ -1634,7 +1709,12 @@ class GeneratorPlayer : FullScreenPlayer() {
                         filteredLinks.getOrNull(sourceIndex)?.let {
                             // The user manually picked this source, remember it for this episode
                             saveSelectedSource(it.link)
-                            loadLink(it.link, true)
+                            if (isCastingActive()) {
+                                // Switch the source on the TV instead of locally
+                                castLink(it.link)
+                            } else {
+                                loadLink(it.link, true)
+                            }
                         }
                     }
                     sourceDialog.dismissSafe(activity)
@@ -1648,6 +1728,11 @@ class GeneratorPlayer : FullScreenPlayer() {
 
     override fun showTracksDialogue() {
         try {
+            if (isCastingActive()) {
+                // While casting, tracks come from the TV receiver, not ExoPlayer
+                showCastAudioTracksDialogue()
+                return
+            }
             //println("CURRENT SELECTED :$currentSelectedSubtitles of $currentSubs")
             context?.let { ctx ->
                 val tracks = player.getVideoTracks()

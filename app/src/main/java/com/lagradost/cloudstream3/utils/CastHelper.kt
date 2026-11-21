@@ -44,16 +44,11 @@ object CastHelper {
             movieMetadata.addImage(WebImage(srcPoster.toUri()))
         }
 
-        // The default receiver only renders WebVTT text tracks, so other
-        // formats (srt, ass) are left out instead of risking a failed load.
-        var subIndex = 0
-        val tracks = subtitles.filter {
-            it.url.substringBefore('?').lowercase().endsWith(".vtt")
-        }.map {
-            MediaTrack.Builder(subIndex++.toLong(), MediaTrack.TYPE_TEXT)
-                .setName(it.name)
+        val tracks = castVttTracks(subtitles).map { (id, sub) ->
+            MediaTrack.Builder(id, MediaTrack.TYPE_TEXT)
+                .setName(sub.name)
                 .setSubtype(MediaTrack.SUBTYPE_SUBTITLES)
-                .setContentId(it.url)
+                .setContentId(sub.url)
                 .setContentType("text/vtt")
                 .build()
         }
@@ -113,6 +108,7 @@ object CastHelper {
         startIndex: Int? = null,
         startTime: Long? = null,
         preferDirect: Boolean = true,
+        activeSubtitle: SubtitleData? = null,
     ): Boolean {
         try {
             if (this == null) return false
@@ -146,6 +142,13 @@ object CastHelper {
                 if (firstDirect >= 0) index = firstDirect
             }
 
+            // Remember which tracks are active so mid-cast switches keep the
+            // other track active too. The audio default is left to the receiver.
+            activeTextTrackId = activeSubtitle?.let { sel ->
+                castVttTracks(subtitles).firstOrNull { it.second.url == sel.url }?.first
+            }
+            activeAudioTrackId = null
+
             val holder =
                 MetadataHolder(
                     apiName,
@@ -161,11 +164,12 @@ object CastHelper {
             val mediaItem =
                 getMediaInfo(epData, holder, index, JSONObject(holder.toJson()), subtitles)
 
+            val loadRequest = MediaLoadRequestData.Builder().setMediaInfo(mediaItem)
+                .setCurrentTime(startTime ?: 0L)
+            activeTextTrackId?.let { loadRequest.setActiveTrackIds(longArrayOf(it)) }
+
             awaitLinks(
-                this.remoteMediaClient?.load(
-                    MediaLoadRequestData.Builder().setMediaInfo(mediaItem)
-                        .setCurrentTime(startTime ?: 0L).build()
-                )
+                this.remoteMediaClient?.load(loadRequest.build())
             ) {
                 if (orderedLinks.size > index + 1)
                     startCast(
@@ -179,7 +183,8 @@ object CastHelper {
                         subtitles,
                         index + 1,
                         startTime,
-                        preferDirect = false
+                        preferDirect = false,
+                        activeSubtitle = activeSubtitle
                     )
             }
             return true
@@ -188,4 +193,49 @@ object CastHelper {
             return false
         }
     }
+
+    // region Mid-cast track control
+
+    // The default receiver only renders WebVTT text tracks, so other
+    // formats (srt, ass) are left out instead of risking a failed load.
+    // Returns the castable subtitles with their cast track ids.
+    fun castVttTracks(subtitles: List<SubtitleData>): List<Pair<Long, SubtitleData>> {
+        var id = 0L
+        return subtitles.filter {
+            it.url.substringBefore('?').lowercase().endsWith(".vtt")
+        }.map { id++ to it }
+    }
+
+    // Active cast tracks, remembered so switching one keeps the other active.
+    private var activeTextTrackId: Long? = null
+    private var activeAudioTrackId: Long? = null
+
+    private fun CastSession?.applyActiveCastTracks() {
+        val client = this?.remoteMediaClient ?: return
+        val ids = listOfNotNull(activeTextTrackId, activeAudioTrackId)
+        client.setActiveMediaTracks(ids.toLongArray())
+    }
+
+    /** Switch the subtitle shown on the TV mid-cast. Pass null to hide subtitles. */
+    fun CastSession?.setCastSubtitle(subtitles: List<SubtitleData>, subtitle: SubtitleData?) {
+        if (this == null) return
+        activeTextTrackId = subtitle?.let { sel ->
+            castVttTracks(subtitles).firstOrNull { it.second.url == sel.url }?.first
+        }
+        applyActiveCastTracks()
+    }
+
+    /** Audio tracks the receiver reports for the currently loaded media. */
+    fun CastSession?.getCastAudioTracks(): List<MediaTrack> {
+        return this?.remoteMediaClient?.mediaInfo?.mediaTracks
+            ?.filter { it.type == MediaTrack.TYPE_AUDIO } ?: emptyList()
+    }
+
+    /** Switch the audio track on the TV mid-cast. */
+    fun CastSession?.setCastAudioTrack(trackId: Long) {
+        if (this == null) return
+        activeAudioTrackId = trackId
+        applyActiveCastTracks()
+    }
+    // endregion
 }

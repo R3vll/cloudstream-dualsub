@@ -256,10 +256,10 @@ class GeneratorPlayer : FullScreenPlayer() {
         // Remember any session that is already running when the player opened,
         // so a later session-started event for it does not auto cast.
         // Best effort: getCastSession() is null until MainActivity's CastContext
-        // init finishes, in which case attachCastListener treats a connected
-        // session as one started from this player.
-        castSessionIdAtSetup = activity?.getCastSession()?.sessionId
+        // init finishes; attachCastListener then re-reads the running session
+        // from the SessionManager it attaches to instead.
         try {
+            castSessionIdAtSetup = activity?.getCastSession()?.sessionId
             activity?.let { act ->
                 CastButtonFactory.setUpMediaRouteButton(act, routeButton)
                 // Prefer the already-initialised shared instance so the listener
@@ -288,16 +288,22 @@ class GeneratorPlayer : FullScreenPlayer() {
     }
 
     private fun attachCastListener(sessionManager: SessionManager) {
-        castSessionManager = sessionManager
-        sessionManager.addSessionManagerListener(castSessionListener)
-        // The session may already have started in the gap before this listener
-        // was attached. If it is connected now and it is not the session that
-        // was already running when the player opened, cast to it instead of
-        // waiting for an event that already fired.
-        val current = sessionManager.currentCastSession
-        val sessionId = current?.sessionId
-        if (current != null && current.isConnected && sessionId != null && sessionId != castSessionIdAtSetup) {
-            onCastSessionStarted(sessionId)
+        try {
+            castSessionManager = sessionManager
+            // Read the already-running session from THIS manager instead of
+            // MainActivity.mSessionManager: that field is still null while
+            // MainActivity's async CastContext init is pending, which made the
+            // id guard fall through and auto cast (closing the local player as
+            // soon as it opened) for any player opened in that window. A
+            // session already connected when this listener attaches must never
+            // auto cast; the user casts by picking the TV from the cast
+            // button, which fires onSessionStarted through the listener.
+            if (castSessionIdAtSetup == null) {
+                castSessionIdAtSetup = sessionManager.currentCastSession?.sessionId
+            }
+            sessionManager.addSessionManagerListener(castSessionListener)
+        } catch (e: Exception) {
+            logError(e)
         }
     }
 

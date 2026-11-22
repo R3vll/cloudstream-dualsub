@@ -1,7 +1,6 @@
 package com.lagradost.cloudstream3.ui
 
 import android.os.Bundle
-import android.util.Log
 import android.view.Menu
 import android.view.View.GONE
 import android.view.View.INVISIBLE
@@ -20,6 +19,7 @@ import com.google.android.gms.cast.MediaStatus.REPEAT_MODE_REPEAT_OFF
 import com.google.android.gms.cast.MediaTrack
 import com.google.android.gms.cast.TextTrackStyle
 import com.google.android.gms.cast.framework.CastButtonFactory
+import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.google.android.gms.cast.framework.media.uicontroller.UIController
@@ -37,8 +37,12 @@ import com.lagradost.cloudstream3.ui.subtitles.ChromecastSubtitlesFragment
 import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.CastHelper
 import com.lagradost.cloudstream3.utils.CastHelper.awaitLinks
 import com.lagradost.cloudstream3.utils.CastHelper.getMediaInfo
+import com.lagradost.cloudstream3.utils.CastHelper.setCastAudioTrack
+import com.lagradost.cloudstream3.utils.CastHelper.setCastTextTrackId
+import com.lagradost.cloudstream3.utils.CastHelper.startCast
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -92,6 +96,9 @@ data class MetadataHolder(
 )
 
 class SelectSourceController(val view: ImageView, val activity: ControllerActivity) : UIController() {
+    private fun castSession(): CastSession? =
+        CastContext.getSharedInstance(view.context).sessionManager.currentCastSession
+
     init {
         view.setImageResource(R.drawable.ic_baseline_playlist_play_24)
         view.setOnClickListener {
@@ -129,7 +136,7 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
 
                         subtitleList.setOnItemClickListener { _, _, which, _ ->
                             if (which == 0) {
-                                remoteMediaClient?.setActiveMediaTracks(longArrayOf()) // NO SUBS
+                                castSession()?.setCastTextTrackId(null) // NO SUBS
                             } else {
                                 ChromecastSubtitlesFragment.getCurrentSavedStyle().apply {
                                     val font = TextTrackStyle()
@@ -146,16 +153,36 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
                                     remoteMediaClient?.setTextTrackStyle(font)
                                 }
 
-                                remoteMediaClient?.setActiveMediaTracks(longArrayOf(subTracks[which - 1].id))
-                                    ?.setResultCallback {
-                                        if (!it.status.isSuccess) {
-                                            Log.e(
-                                                "CHROMECAST", "Failed with status code:" +
-                                                    it.status.statusCode + " > " + it.status.statusMessage
-                                            )
-                                        }
-                                    }
+                                castSession()?.setCastTextTrackId(subTracks[which - 1].id)
                             }
+                            bottomSheetDialog.dismissSafe(activity)
+                        }
+                    }
+
+                    // Audio tracks the receiver reports (HLS alternate audio)
+                    val audioTracks = remoteMediaClient?.mediaInfo?.mediaTracks?.filter { it.type == MediaTrack.TYPE_AUDIO }
+                        ?: ArrayList()
+
+                    val audioHolder = bottomSheetDialog.findViewById<LinearLayout>(R.id.sort_tracks_holder)
+                    if (audioTracks.size <= 1) {
+                        audioHolder?.visibility = GONE
+                    } else {
+                        val audioList = bottomSheetDialog.findViewById<ListView>(R.id.sort_tracks)!!
+                        val audioAdapter = ArrayAdapter<String>(view.context, R.layout.sort_bottom_single_choice)
+                        audioAdapter.addAll(audioTracks.map { it.name ?: it.language ?: "Track ${it.id}" })
+
+                        audioList.choiceMode = AbsListView.CHOICE_MODE_SINGLE
+                        audioList.adapter = audioAdapter
+
+                        val activeIds = remoteMediaClient?.mediaStatus?.activeTrackIds
+                        val audioIndex = if (activeIds == null) 0 else audioTracks.map { it.id }
+                            .indexOfFirst { activeIds.contains(it) }.coerceAtLeast(0)
+
+                        audioList.setSelection(audioIndex)
+                        audioList.setItemChecked(audioIndex, true)
+
+                        audioList.setOnItemClickListener { _, _, which, _ ->
+                            castSession()?.setCastAudioTrack(audioTracks[which].id)
                             bottomSheetDialog.dismissSafe(activity)
                         }
                     }
@@ -178,6 +205,26 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
 
                     providerList.setOnItemClickListener { _, _, which, _ ->
                         val epData = holder.episodes[holder.currentEpisodeIndex]
+                        val dual = CastHelper.activeDualSubtitles
+                        if (dual != null) {
+                            // Keep the merged dual-sub track across the switch
+                            castSession()?.startCast(
+                                holder.apiName,
+                                holder.isMovie,
+                                holder.title,
+                                holder.poster,
+                                holder.currentEpisodeIndex,
+                                holder.episodes,
+                                holder.currentLinks,
+                                holder.currentSubtitles,
+                                startIndex = which,
+                                startTime = remoteMediaClient?.approximateStreamPosition ?: 0,
+                                activeSubtitle = dual.first,
+                                secondarySubtitle = dual.second,
+                            )
+                            bottomSheetDialog.dismissSafe(activity)
+                            return@setOnItemClickListener
+                        }
                         fun loadMirror(index: Int) {
                             if (holder.currentLinks.size <= index) return
                             val mediaItem = getMediaInfo(
@@ -250,7 +297,11 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
     override fun onMediaStatusUpdated() {
         super.onMediaStatusUpdated()
         val meta = getCurrentMetaData()
-        view.visibility = if ((meta?.currentLinks?.size ?: 0) > 1) VISIBLE else INVISIBLE
+        val hasSources = (meta?.currentLinks?.size ?: 0) > 1
+        val hasSubtitles = !meta?.currentSubtitles.isNullOrEmpty()
+        val hasAudioTracks = (remoteMediaClient?.mediaInfo?.mediaTracks
+            ?.count { it.type == MediaTrack.TYPE_AUDIO } ?: 0) > 1
+        view.visibility = if (hasSources || hasSubtitles || hasAudioTracks) VISIBLE else INVISIBLE
 
         try {
             if (meta != null && meta.episodes.size > meta.currentEpisodeIndex + 1) {

@@ -152,6 +152,29 @@ object CastDualSub {
         )
     }
 
+    /**
+     * Converts one subtitle of any format into a WebVTT track the receiver can
+     * render. Internet subtitles are usually srt, which the receiver rejects.
+     */
+    suspend fun buildSingleTrack(
+        existingTrackCount: Int,
+        sub: SubtitleData,
+    ): MergedCastTrack? {
+        if (sub.origin == SubtitleOrigin.EMBEDDED_IN_VIDEO) return null
+        val text = download(sub) ?: return null
+        val vtt = mergeToVtt(DualSubtitleManager.parseSubtitleText(text), emptyList())
+            ?: return null
+
+        CastSubServer.ensureStarted()
+        val url = CastSubServer.url() ?: return null
+        CastSubServer.setContent(vtt)
+        return MergedCastTrack(
+            id = existingTrackCount.toLong(),
+            name = sub.originalName,
+            url = url,
+        )
+    }
+
     private suspend fun download(sub: SubtitleData): String? {
         return try {
             app.get(sub.getFixedUrl(), headers = sub.headers).text

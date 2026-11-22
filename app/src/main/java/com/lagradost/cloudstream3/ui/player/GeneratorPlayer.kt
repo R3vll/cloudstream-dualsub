@@ -123,6 +123,7 @@ import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.CastHelper.getCastAudioTracks
 import com.lagradost.cloudstream3.utils.CastHelper.setCastAudioTrack
+import com.lagradost.cloudstream3.utils.CastHelper.castVttTracks
 import com.lagradost.cloudstream3.utils.CastHelper.setCastSubtitle
 import com.lagradost.cloudstream3.utils.CastHelper.startCast
 import com.lagradost.cloudstream3.utils.DataStoreHelper.SelectedSourceData
@@ -398,7 +399,7 @@ class GeneratorPlayer : FullScreenPlayer() {
     }
 
     /** Dual subtitles on the TV: both languages merged into one cast track. */
-    private fun castDualSubtitles(primary: SubtitleData, secondary: SubtitleData) {
+    private fun castDualSubtitles(primary: SubtitleData, secondary: SubtitleData? = null) {
         val meta = currentMeta as? ResultEpisode ?: return
         val links = castLinks.ifEmpty {
             viewModel.state.sortLinks(currentQualityProfile)
@@ -474,9 +475,14 @@ class GeneratorPlayer : FullScreenPlayer() {
             // While casting, subtitles switch on the TV, not the local player.
             // A dual selection reloads through castDualSubtitles instead, so the
             // instant single-track switch only applies without a secondary sub.
-            if (subtitle == null || secondarySubtitleData == null) {
+            if (secondarySubtitleData == null) {
                 val subs = castSubtitles.ifEmpty { viewModel.state.subtitles.toList() }
-                activity?.getCastSession().setCastSubtitle(subs, subtitle)
+                if (subtitle != null && castVttTracks(subs).none { it.second.url == subtitle.url }) {
+                    // Internet subtitles are usually not WebVTT; convert and cast
+                    castDualSubtitles(subtitle, null)
+                } else {
+                    activity?.getCastSession().setCastSubtitle(subs, subtitle)
+                }
             }
             currentSelectedSubtitles = subtitle
             return true
@@ -1100,7 +1106,16 @@ class GeneratorPlayer : FullScreenPlayer() {
                             )
                         }
                         if (subtitles.isEmpty()) {
-                            showToast(R.string.no_subtitles)
+                            // Providers that need an in-app login return nothing
+                            // while logged out; say so instead of a bare failure.
+                            if (!api.isAvailable) {
+                                showToast(
+                                    "Log in to ${api.name} in settings to use its subtitles",
+                                    Toast.LENGTH_LONG
+                                )
+                            } else {
+                                showToast(R.string.no_subtitles)
+                            }
                             return@ioSafe
                         }
                         dialog.dismissSafe()
@@ -1276,7 +1291,19 @@ class GeneratorPlayer : FullScreenPlayer() {
             }
             // maybe better error here?
             if (!hasSelectASubtitle && this.isActive) {
-                showToast(R.string.no_subtitles)
+                // Providers that need an in-app login return nothing while
+                // logged out; point at the login instead of a bare failure.
+                val loginProvider = subsProviders.firstOrNull {
+                    it.inAppLoginRequirement != null && !it.isAvailable
+                }
+                if (loginProvider != null) {
+                    showToast(
+                        "Log in to ${loginProvider.name} in settings to download subtitles",
+                        Toast.LENGTH_LONG
+                    )
+                } else {
+                    showToast(R.string.no_subtitles)
+                }
             }
         }
 

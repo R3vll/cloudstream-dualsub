@@ -102,10 +102,10 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
     init {
         view.setImageResource(R.drawable.ic_baseline_playlist_play_24)
         view.setOnClickListener {
-            val holder = getCurrentMetaData()
-            if (holder != null) {
-                val items = holder.currentLinks
-                if (items.isNotEmpty() && remoteMediaClient?.currentItem != null) {
+            if (remoteMediaClient?.currentItem != null) {
+                val holder = getCurrentMetaData()
+                val items = holder?.currentLinks ?: emptyList()
+                run {
                     val subTracks = remoteMediaClient?.mediaInfo?.mediaTracks?.filter { it.type == MediaTrack.TYPE_TEXT }
                         ?: ArrayList()
 
@@ -187,6 +187,10 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
                         }
                     }
 
+                    // Sources need the phone-side metadata; without it, hide the section
+                    if (holder == null || items.isEmpty()) {
+                        bottomSheetDialog.findViewById<LinearLayout>(R.id.sort_providers_holder)?.visibility = GONE
+                    } else {
                     // https://developers.google.com/cast/docs/reference/web_receiver/cast.framework.messages.MediaInformation
                     val contentUrl = (remoteMediaClient?.currentItem?.media?.contentUrl
                         ?: remoteMediaClient?.currentItem?.media?.contentId)
@@ -279,6 +283,7 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
                         loadMirror(which)
                         bottomSheetDialog.dismissSafe(activity)
                     }
+                    }
                 }
             }
         }
@@ -297,11 +302,8 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
     override fun onMediaStatusUpdated() {
         super.onMediaStatusUpdated()
         val meta = getCurrentMetaData()
-        val hasSources = (meta?.currentLinks?.size ?: 0) > 1
-        val hasSubtitles = !meta?.currentSubtitles.isNullOrEmpty()
-        val hasAudioTracks = (remoteMediaClient?.mediaInfo?.mediaTracks
-            ?.count { it.type == MediaTrack.TYPE_AUDIO } ?: 0) > 1
-        view.visibility = if (hasSources || hasSubtitles || hasAudioTracks) VISIBLE else INVISIBLE
+        // Always show while casting: the sheet hides its empty sections itself.
+        view.visibility = if (remoteMediaClient?.currentItem != null) VISIBLE else INVISIBLE
 
         try {
             if (meta != null && meta.episodes.size > meta.currentEpisodeIndex + 1) {

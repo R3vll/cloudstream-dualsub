@@ -144,6 +144,26 @@ object CastHelper {
         }
 
         activeDualSubtitles = null
+
+        if (activeSubtitle != null &&
+            castVttTracks(subtitles).none { it.second.url == activeSubtitle.url }
+        ) {
+            // The receiver only renders WebVTT; convert internet subtitles
+            // (usually srt) and serve them from the phone.
+            val session = this
+            main {
+                val converted = withContext(Dispatchers.IO) {
+                    CastDualSub.buildSingleTrack(castVttTracks(subtitles).size, activeSubtitle)
+                }
+                session.startCastInternal(
+                    apiName, isMovie, title, poster, currentEpisodeIndex, episodes,
+                    currentLinks, subtitles, startIndex, startTime, preferDirect,
+                    activeSubtitle, converted,
+                )
+            }
+            return true
+        }
+
         return startCastInternal(
             apiName, isMovie, title, poster, currentEpisodeIndex, episodes,
             currentLinks, subtitles, startIndex, startTime, preferDirect,

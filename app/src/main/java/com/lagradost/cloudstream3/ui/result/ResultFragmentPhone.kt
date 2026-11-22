@@ -661,6 +661,8 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                 }
             }
             mediaRouteButton.apply {
+                // Cast is controlled from inside the player; keep detail pages clean
+                isGone = true
                 val chromecastSupport = api?.hasChromecastSupport == true
                 alpha = if (chromecastSupport) 1f else 0.3f
                 if (!chromecastSupport) {

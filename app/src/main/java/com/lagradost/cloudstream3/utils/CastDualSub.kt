@@ -125,7 +125,7 @@ object CastSubServer {
 
 object CastDualSub {
     /** Builds the merged dual-language track, or null when it cannot be made. */
-    fun buildMergedTrack(
+    suspend fun buildMergedTrack(
         existingTrackCount: Int,
         primary: SubtitleData,
         secondary: SubtitleData,
@@ -152,7 +152,7 @@ object CastDualSub {
         )
     }
 
-    private fun download(sub: SubtitleData): String? {
+    private suspend fun download(sub: SubtitleData): String? {
         return try {
             app.get(sub.getFixedUrl(), headers = sub.headers).text
         } catch (t: Throwable) {

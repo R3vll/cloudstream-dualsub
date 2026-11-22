@@ -346,6 +346,7 @@ class GeneratorPlayer : FullScreenPlayer() {
                 startIndex = startIndex,
                 startTime = player.getPosition(),
                 activeSubtitle = currentSelectedSubtitles,
+                secondarySubtitle = secondarySubtitleData,
             ) ?: false
             if (success) {
                 // Keep the player open: its Sources/Subtitles/Tracks pickers are
@@ -391,6 +392,44 @@ class GeneratorPlayer : FullScreenPlayer() {
                 // Continue where the TV stopped, like a local source switch does
                 startTime = session.remoteMediaClient?.approximateStreamPosition ?: 0L,
                 activeSubtitle = currentSelectedSubtitles,
+                secondarySubtitle = secondarySubtitleData,
+            )
+        }
+    }
+
+    /** Dual subtitles on the TV: both languages merged into one cast track. */
+    private fun castDualSubtitles(primary: SubtitleData, secondary: SubtitleData) {
+        val meta = currentMeta as? ResultEpisode ?: return
+        val links = castLinks.ifEmpty {
+            viewModel.state.sortLinks(currentQualityProfile)
+                .filter { it.shouldUseLink }
+                .mapNotNull { l -> l.link.first }
+        }
+        if (links.isEmpty()) return
+        val subs = castSubtitles.ifEmpty { viewModel.state.subtitles.toList() }
+        // Main needed because getCastSession needs to be on main thread
+        runOnMainThread {
+            val session = activity?.getCastSession() ?: return@runOnMainThread
+            val playingUrl = session.remoteMediaClient?.currentItem?.media?.contentUrl
+                ?: session.remoteMediaClient?.currentItem?.media?.contentId
+            val index = links.indexOfFirst { it.url == playingUrl }
+                .takeIf { it >= 0 }
+                ?: links.indexOfFirst { it.url == currentSelectedLink?.first?.url }
+                    .takeIf { it >= 0 } ?: 0
+            session.startCast(
+                meta.apiName,
+                meta.tvType.isMovieType(),
+                meta.headerName,
+                meta.poster,
+                meta.index,
+                allMeta ?: listOf(meta),
+                links,
+                subs,
+                startIndex = index,
+                // Continue where the TV is playing
+                startTime = session.remoteMediaClient?.approximateStreamPosition ?: 0L,
+                activeSubtitle = primary,
+                secondarySubtitle = secondary,
             )
         }
     }
@@ -432,9 +471,13 @@ class GeneratorPlayer : FullScreenPlayer() {
         }
 
         if (userInitiated && isCastingActive()) {
-            // While casting, subtitles switch on the TV, not the local player
-            val subs = castSubtitles.ifEmpty { viewModel.state.subtitles.toList() }
-            activity?.getCastSession().setCastSubtitle(subs, subtitle)
+            // While casting, subtitles switch on the TV, not the local player.
+            // A dual selection reloads through castDualSubtitles instead, so the
+            // instant single-track switch only applies without a secondary sub.
+            if (subtitle == null || secondarySubtitleData == null) {
+                val subs = castSubtitles.ifEmpty { viewModel.state.subtitles.toList() }
+                activity?.getCastSession().setCastSubtitle(subs, subtitle)
+            }
             currentSelectedSubtitles = subtitle
             return true
         }
@@ -1695,6 +1738,20 @@ class GeneratorPlayer : FullScreenPlayer() {
 
                     currentSelectedSubtitles = localPrimarySub
                     secondarySubtitleData = localSecondarySub
+
+                    if (isCastingActive()) {
+                        val castPrimary = localPrimarySub
+                        val castSecondary = localSecondarySub
+                        // When the source also changed, castLink below reloads
+                        // with the dual pair, so only handle the same-source case.
+                        if (castPrimary != null && castSecondary != null && sourceIndex == startSource) {
+                            // Dual subtitles on the TV need a merged-track reload
+                            castDualSubtitles(castPrimary, castSecondary)
+                        } else if (castPrimary == null) {
+                            // Subtitles turned off entirely, hide them on the TV
+                            setSubtitles(null, true)
+                        }
+                    }
 
                     val subChanged = localPrimarySub != currentSelectedSubtitles || localSecondarySub != secondarySubtitleData
                     init = init or if (localPrimarySub == null && localSecondarySub == null) {
